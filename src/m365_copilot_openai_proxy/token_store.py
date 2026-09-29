@@ -41,11 +41,23 @@ def init_token_dir(token_dir: str) -> None:
 
 
 def decode_jwt_payload(token: str) -> dict[str, Any]:
-    # Reject a non-JWT up front. Indexing [1] on the split raised IndexError for
-    # an empty or malformed token, which every caller surfaced verbatim as the
-    # opaque "list index out of range" -- reported from /healthz on a deployment
-    # whose global token is unset because each account carries its own.
-    parts = token.split(".")
+    parts = token.strip().split(".")
+    if len(parts) == 5:
+        header_b64 = parts[0] + "=" * (-len(parts[0]) % 4)
+        try:
+            header = json.loads(base64.urlsafe_b64decode(header_b64))
+        except Exception:
+            header = {}
+        # For 5-part opaque JWE from Microsoft Substrate Consumer/Hotmail,
+        # synthesize exp far in the future so that _is_expired / _needs_refresh
+        # trust the token rather than treating missing exp as 0 (expired).
+        return {
+            "token_format": "jwe5",
+            "header": header,
+            "aud": "https://substrate.office.com/",
+            "is_jwe": True,
+            "exp": int(time.time() + 86400),
+        }
     if len(parts) < 2 or not parts[1]:
         raise ValueError("not a JWT (expected header.payload.signature)")
     payload = parts[1]

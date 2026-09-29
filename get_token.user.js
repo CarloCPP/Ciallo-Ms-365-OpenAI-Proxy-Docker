@@ -16,6 +16,9 @@
 // @match        https://*.teams.microsoft.com/*
 // @match        https://microsoft.com/*
 // @match        https://*.microsoft.com/*
+// @match        https://copilot.com/*
+// @match        https://*.copilot.com/*
+// @match        https://*.cloud.microsoft/*
 // @grant        GM_cookie
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
@@ -38,7 +41,7 @@
     // captures both tokens (the outgoing-frame tap stays Substrate-only).
     // copilot.microsoft.com is already covered by the
     // https://*.microsoft.com/* @match, so no new @match is needed.
-    const CONSUMER_WS_RE = /wss:\/\/copilot\.microsoft\.com\/.*[?&]accessToken=([^&]+)/;
+    const CONSUMER_WS_RE = /[?&](?:accessToken|access_token)=([^&]+)/i;
     const CONSUMER_IDENTITY_RE = /[?&]X-UserIdentityType=([^&]+)/;
     // Which product the current tab belongs to. The two Copilots live on
     // different hosts and need different pushes, so the panel leads with the
@@ -582,7 +585,8 @@
 
     function getConsumerAccountId() {
         const accountId = String(cachedConsumerEmail.accountId || '').toLowerCase();
-        return /^(home|local):[a-z0-9._-]+$/.test(accountId) ? accountId : '';
+        if (!/^(home|local):[a-z0-9._-]+$/.test(accountId)) accountId = 'home:msa_user_' + (latestConsumerIdentity || 'default').toLowerCase().replace(/[^a-z0-9._-]/g, '_');
+        return /^(home|local):[a-z0-9._-]+$/.test(accountId) ? accountId : 'home:msa_user_default';
     }
 
     function getConsumerAccountName() {
@@ -1229,6 +1233,8 @@
             { domain: '.teams.microsoft.com' },
             { domain: '.asyncgw.teams.microsoft.com' },
             { url: 'https://copilot.microsoft.com/' },
+            { url: 'https://copilot.com/' },
+            { domain: '.copilot.com' },
             { url: 'https://www.bing.com/' },
             { domain: '.copilot.microsoft.com' },
             { domain: '.bing.com' },

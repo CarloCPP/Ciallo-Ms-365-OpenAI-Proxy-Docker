@@ -291,6 +291,9 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
                 app.state.key_store.update(k.id, account_id=acc.id, displaced_at=0.0)
             else:
                 acc = app.state.account_store.push_token(acc_id, token)
+                if acc is not None and acc.provider != "m365":
+                    acc.provider = "m365"
+                    app.state.account_store._save()
                 if k.displaced_at:
                     app.state.key_store.update(k.id, displaced_at=0.0)
         return {"status": "ok", "token_status": acc.token_status() if acc else None, "displaced": displaced}

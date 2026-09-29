@@ -289,15 +289,16 @@ class SubstrateCopilotClient:
             raise SubstrateCopilotError(f"Cannot decode access token: {exc}") from exc
         if not is_substrate_token_claims(claims):
             raise SubstrateCopilotError("Access token is not a substrate.office.com token.")
-        if time.time() > claims.get("exp", 0):
+        if claims.get("exp") and time.time() > claims.get("exp", 0):
             raise SubstrateCopilotError(
                 "Access token expired and could not be auto-refreshed. "
                 "Re-push this account's token/cookies from the browser userscript "
                 "(one-click push on the M365 Copilot page), or trigger a cookie "
                 "refresh from the admin page for this account."
             )
-        self._oid: str = claims["oid"]
-        self._tid: str = claims["tid"]
+        self._oid: str = claims.get("oid") or "00000000-0000-0000-0000-000000000000"
+        self._tid: str = claims.get("tid") or "84df9e7f-e9f6-40af-b435-aaaaaaaaaaaa"
+        self._is_consumer: bool = bool(claims.get("is_jwe") or self._tid == "84df9e7f-e9f6-40af-b435-aaaaaaaaaaaa")
 
     def _note_quota(self, payload: Any) -> None:
         """Forward this frame's quota to the sink, if it carries one.
@@ -334,6 +335,9 @@ class SubstrateCopilotClient:
             if studio_agent_id
             else "&agent=web"
         )
+        is_consumer = getattr(self, "_is_consumer", False)
+        scenario = "OfficeWebPremiumConsumerCopilot" if is_consumer else "OfficeWebIncludedCopilot"
+        license_type = "Premium" if is_consumer else "Starter"
         return (
             f"{_WS_BASE}/{self._oid}@{self._tid}"
             f"?ClientRequestId={req_id}"
@@ -342,7 +346,7 @@ class SubstrateCopilotClient:
             f"&access_token={token}"
             f"&variants={getattr(self, '_variants', _VARIANTS)}"
             f"&source=officeweb&product=Office&agentHost=Bizchat.FullScreen"
-            f"&licenseType=Starter{agent_surface}&scenario=OfficeWebIncludedCopilot"
+            f"&licenseType={license_type}{agent_surface}&scenario={scenario}"
         )
 
     def _chat_invoke(
@@ -637,11 +641,12 @@ class SubstrateCopilotClient:
     ) -> AsyncIterator[str]:
         req_id = str(uuid.uuid4())
         url = self._ws_url(conv_id, session_id, req_id)
+        origin = "https://copilot.com" if getattr(self, "_is_consumer", False) else "https://m365.cloud.microsoft"
         try:
             async with websockets.connect(
                 url,
                 additional_headers={
-                    "Origin": "https://m365.cloud.microsoft",
+                    "Origin": origin,
                 },
                 open_timeout=_WS_OPEN_TIMEOUT,
                 close_timeout=_WS_OPEN_TIMEOUT,

@@ -268,7 +268,11 @@ class Account:
                     "expires_at": None,
                     "seconds_remaining": 0,
                 }
-            expires_at = int(claims["exp"])
+            if claims.get("is_jwe"):
+                updated = getattr(self, "updated_at", None) or now
+                expires_at = int(updated + 3600)
+            else:
+                expires_at = int(claims["exp"])
         except Exception as exc:  # noqa: BLE001 - report any decode failure to the UI
             return {"valid": False, "error": f"Cannot decode token: {exc}", "expires_at": None, "seconds_remaining": 0}
         seconds_remaining = max(0, expires_at - int(now))
