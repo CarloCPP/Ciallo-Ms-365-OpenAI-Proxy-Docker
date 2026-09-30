@@ -18,9 +18,9 @@ SUBSTRATE_AUDIENCE_PREFIX = "https://substrate.office.com/"
 def is_valid_substrate_jwe(token: str) -> bool:
     """Validate that token is a structurally sound 5-segment JWE.
 
-    A valid JWE consists of 5 non-empty base64url segments:
-    header.encrypted_key.iv.ciphertext.tag.
-    The protected header must decode to a JSON dict containing required JWE fields ('alg' and 'enc').
+    A valid JWE consists of 5 segments: header.encrypted_key.iv.ciphertext.tag.
+    When alg is 'dir' (Direct Encryption, RFC 7516, standard for Microsoft personal
+    Substrate JWE), the encrypted_key segment is legitimately empty.
     """
     if not isinstance(token, str):
         return False
@@ -28,7 +28,7 @@ def is_valid_substrate_jwe(token: str) -> bool:
     if len(parts) != 5:
         return False
     for p in parts:
-        if not p or not re.fullmatch(r"[A-Za-z0-9_-]+", p):
+        if p and not re.fullmatch(r"[A-Za-z0-9_-]+", p):
             return False
     header_b64 = parts[0] + "=" * (-len(parts[0]) % 4)
     try:
@@ -42,6 +42,10 @@ def is_valid_substrate_jwe(token: str) -> bool:
     if not isinstance(alg, str) or not alg.strip():
         return False
     if not isinstance(enc, str) or not enc.strip():
+        return False
+    if alg != "dir" and not parts[1]:
+        return False
+    if not parts[2] or not parts[3] or not parts[4]:
         return False
     return True
 
