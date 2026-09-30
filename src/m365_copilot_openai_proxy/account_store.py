@@ -549,6 +549,8 @@ class AccountStore:
                 acc.consumer_refresh_token_client_id = ""
                 acc.consumer_refresh_token_scope = ""
                 acc.consumer_refresh_token_disabled_reason = ""
+                acc.consumer_refresh_token_disabled_at = 0.0
+                acc.consumer_refresh_token_retry_after = 0.0
             _clear_studio_binding_if_subject_changed(acc, token)
             ident_name, email = extract_identity(token)
             if email:
