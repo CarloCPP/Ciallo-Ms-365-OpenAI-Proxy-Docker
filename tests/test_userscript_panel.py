@@ -7,8 +7,8 @@ SCRIPT = (Path(__file__).resolve().parents[1] / "get_token.user.js").read_text(e
 
 
 def test_userscript_version_is_bumped_for_panel_fix():
-    assert "// @version      1.0.76" in SCRIPT
-    assert "const SCRIPT_VERSION = '1.0.76';" in SCRIPT
+    assert "// @version      1.0.78" in SCRIPT
+    assert "const SCRIPT_VERSION = '1.0.78';" in SCRIPT
 
 
 def test_userscript_exports_media_seed_url_with_cookies():
@@ -285,18 +285,14 @@ def test_userscript_wires_every_panel_button_defensively():
         assert f"document.getElementById('{button}').onclick" not in SCRIPT
 
 
-def test_userscript_badges_which_section_is_usable_here():
-    # The off-site product stays in the DOM (collapsed), and on login hosts both
-    # render, so each block still has to label whether this page can feed it.
+def test_userscript_badges_which_protocol_has_been_captured():
+    # 域名只作为未捕获前的提示；实际凭据状态由运行时矩阵测试覆盖。
     assert "function siteBadge(" in SCRIPT
-    # Each badge asks "is this host the one that can capture my token", so both
-    # test a positive predicate. Negating the sibling would be wrong: a login
-    # page is neither product, and !IS_CONSUMER_SITE would badge it "here now"
-    # for M365 even though no substrate token can ever appear there.
     assert "siteBadge(IS_M365_SITE, 'other_site_m365')" in SCRIPT
     assert "siteBadge(IS_CONSUMER_SITE, 'other_site_consumer')" in SCRIPT
     assert "siteBadge(!IS_CONSUMER_SITE" not in SCRIPT
-    assert "here_now:" in SCRIPT
+    assert "protocol_captured:" in SCRIPT
+    assert "protocol_waiting:" in SCRIPT
 
 
 def test_userscript_wrong_site_push_names_the_page_to_open():
@@ -334,11 +330,8 @@ def test_userscript_treats_non_json_body_as_failure_even_on_http_200():
     assert parse < ok_decision
 
 
-def test_userscript_labels_mode_capture_as_m365_only():
-    # The WebSocket wrapper runs for both products, but the outgoing-frame tap
-    # that feeds this section is installed inside the Substrate branch only --
-    # the consumer socket is never tapped. Labelling it "shared" told the user
-    # that capturing works on copilot.microsoft.com, which it does not.
+def test_userscript_labels_mode_capture_as_substrate_only():
+    # 抓帧覆盖工作账号和个人账号的 Substrate，而非另一路 ChatAI。
     assert "section_capture_scope:" in SCRIPT
     assert "tr('section_capture_scope')" in SCRIPT
     assert "section_shared" not in SCRIPT
