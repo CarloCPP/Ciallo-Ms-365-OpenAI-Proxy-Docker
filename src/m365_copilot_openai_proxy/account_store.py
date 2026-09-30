@@ -587,6 +587,7 @@ class AccountStore:
             if acc is None:
                 return None
             acc.token = ""
+            acc.token_updated_at = 0.0
             _clear_studio_agent_binding(acc)
             acc.updated_at = time.time()
             self._save()
@@ -936,18 +937,20 @@ class AccountStore:
             ):
                 return None
             rotated = rotated_refresh_token.strip()
+            now = time.time()
             if rotated and rotated != expected_refresh_token:
                 acc.refresh_token = rotated
-                acc.refresh_token_updated_at = time.time()
+                acc.refresh_token_updated_at = now
             acc.refresh_token_retry_after = 0.0
             acc.token = access_token
+            acc.token_updated_at = now
             _clear_studio_binding_if_subject_changed(acc, access_token)
             ident_name, email = extract_identity(access_token)
             if email:
                 acc.email = email
             if ident_name:
                 acc.name = ident_name
-            acc.updated_at = time.time()
+            acc.updated_at = now
             self._save()
             return acc
 
@@ -1068,6 +1071,7 @@ class AccountStore:
             if acc is None:
                 return None
             acc.token = ""
+            acc.token_updated_at = 0.0
             acc.media_auth_token = ""
             acc.media_auth_updated_at = 0.0
             acc.designer_auth_token = ""
