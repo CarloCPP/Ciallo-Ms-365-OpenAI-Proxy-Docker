@@ -540,6 +540,15 @@ class AccountStore:
             if acc.provider != "m365":
                 acc.provider = "m365"
                 acc.consumer_updated_at = now
+                acc.consumer_token = ""
+                acc.consumer_identity_type = ""
+                acc.consumer_account_id = ""
+                acc.consumer_token_expires_at = 0.0
+                acc.consumer_refresh_token = ""
+                acc.consumer_refresh_token_updated_at = 0.0
+                acc.consumer_refresh_token_client_id = ""
+                acc.consumer_refresh_token_scope = ""
+                acc.consumer_refresh_token_disabled_reason = ""
             _clear_studio_binding_if_subject_changed(acc, token)
             ident_name, email = extract_identity(token)
             if email:

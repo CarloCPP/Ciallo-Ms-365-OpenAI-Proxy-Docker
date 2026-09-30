@@ -287,7 +287,7 @@ class SubstrateCopilotClient:
             claims = decode_jwt_payload(access_token)
             if not is_substrate_token_claims(claims):
                 raise SubstrateCopilotError("Access token is not a substrate.office.com token.")
-            if claims.get("exp") and time.time() > claims.get("exp", 0):
+            if time.time() > claims.get("exp", 0):
                 raise SubstrateCopilotError(
                     "Access token expired and could not be auto-refreshed. "
                     "Re-push this account's token/cookies from the browser userscript "

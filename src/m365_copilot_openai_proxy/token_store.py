@@ -43,9 +43,16 @@ def is_valid_substrate_jwe(token: str) -> bool:
         return False
     if not isinstance(enc, str) or not enc.strip():
         return False
+    if alg == "dir" and parts[1]:
+        return False
     if alg != "dir" and not parts[1]:
         return False
     if not parts[2] or not parts[3] or not parts[4]:
+        return False
+    try:
+        for part in parts[2:5]:
+            base64.urlsafe_b64decode(part + "=" * (-len(part) % 4))
+    except Exception:
         return False
     return True
 

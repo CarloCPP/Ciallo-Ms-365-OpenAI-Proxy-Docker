@@ -126,7 +126,7 @@
             no_media_auth: '尚未捕获 Media Bearer。请先在 M365 页面生成/播放一次媒体。',
             consumer_captured: '✓ ChatAI Token 可用',
             consumer_not_captured: '⚠ 尚未捕获（先在 copilot.microsoft.com 发一条消息）',
-            no_consumer_token: '尚未捕获个人版 ChatAI Token。请在 copilot.microsoft.com 登录并发送一条消息后重试。',
+            no_consumer_token: '尚未捕获个人版 ChatAI Token。请在 copilot.microsoft.com 或 copilot.com 登录并发送一条消息后重试。',
             no_consumer_identity: '无法把 ChatAI Token 对应到唯一的微软账户。请在当前个人版账户中重新发送一条消息后再推送。',
             consumer_pushed: '个人版 Copilot 已推送，Cookie 数：',
             // ---- 两个产品分区 ----
@@ -216,7 +216,7 @@
             no_media_auth: 'No Media Bearer captured yet. Generate or play media in M365 first.',
             consumer_captured: '✓ ChatAI token captured',
             consumer_not_captured: '⚠ not captured (send a message on copilot.microsoft.com first)',
-            no_consumer_token: 'No personal ChatAI token captured yet. Sign in at copilot.microsoft.com, send one message, then retry.',
+            no_consumer_token: 'No personal ChatAI token captured yet. Sign in at copilot.microsoft.com or copilot.com, send one message, then retry.',
             no_consumer_identity: 'The ChatAI token could not be matched to one Microsoft account. Send a new message from the current personal account, then push again.',
             consumer_pushed: 'Personal Copilot pushed, cookies: ',
             // ---- the two product sections ----
@@ -1642,7 +1642,7 @@
     }
 
     function m365Section() {
-        const sectionTitle = location.hostname.includes('copilot.com') ? ' Copilot Substrate 专线' : tr('section_m365');
+        const sectionTitle = location.hostname.includes('copilot.com') ? (LANG === 'en' ? ' Copilot Substrate Route' : ' Copilot Substrate 专线') : tr('section_m365');
         return `
                 <div style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
                     <div style="font-size:12px; color:#60f2ff; font-weight:700; margin-bottom:4px; display:flex; align-items:center;">

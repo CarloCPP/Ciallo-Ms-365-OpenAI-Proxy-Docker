@@ -612,7 +612,7 @@ def test_updating_proxy_or_metadata_does_not_revive_expired_jwe(tmp_path):
     import time
     app = make_test_app(tmp_path)
     store = app.state.account_store
-    jwe = "eyJhbGciOiJSU0EtT0FFUCIsImVuYyI6IkEyNTZHQ00ifQ.a.b.c.d"
+    jwe = "eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0..YQ.Yg.Yw"
     account = store.add(name="JWE User", token=jwe)
     assert account.token_updated_at > 0
 
@@ -631,7 +631,7 @@ def test_jwe_token_updated_at_survives_reload_and_cannot_be_revived(tmp_path):
     from m365_copilot_openai_proxy.account_store import AccountStore
     persist = tmp_path / "accounts.json"
     store = AccountStore(persist_path=persist)
-    jwe = "eyJhbGciOiJSU0EtT0FFUCIsImVuYyI6IkEyNTZHQ00ifQ.a.b.c.d"
+    jwe = "eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0..YQ.Yg.Yw"
     account = store.add(name="JWE User", token=jwe)
     assert account.token_updated_at > 0
     orig_time = account.token_updated_at
