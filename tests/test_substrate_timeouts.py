@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 
 import pytest
 
@@ -71,18 +73,18 @@ def test_chat_stream_idle_timeout_raises(monkeypatch):
         asyncio.run(collect())
 
 
-def test_idle_timeout_constructor_arg_overrides_default(monkeypatch):
-    # A valid substrate JWT is required by __init__; stub the decode/claims checks
-    # so we can exercise only the idle_timeout wiring.
-    monkeypatch.setattr(substrate_client, "decode_jwt_payload", lambda t: {"oid": "o", "tid": "t", "exp": 9999999999})
-    monkeypatch.setattr(substrate_client, "is_substrate_token_claims", lambda c: True)
+def test_idle_timeout_constructor_arg_overrides_default():
+    # 使用三段 JWT 夹具，让构造器真实经过凭据检查，而不是 mock 掉解析边界。
+    claims = {"aud": "https://substrate.office.com/", "oid": "o", "tid": "t", "exp": 9999999999}
+    payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
+    token = "eyJhbGciOiJIUzI1NiJ9." + payload + ".fixture"
 
     # Explicit override (in seconds) wins.
-    client = SubstrateCopilotClient("token", idle_timeout=42)
+    client = SubstrateCopilotClient(token, idle_timeout=42)
     assert client._idle_timeout == 42.0
 
     # Falsy (None/0) => module default.
-    client_default = SubstrateCopilotClient("token")
+    client_default = SubstrateCopilotClient(token)
     assert client_default._idle_timeout == substrate_client._WS_IDLE_TIMEOUT
 
 

@@ -15,45 +15,82 @@ from .atomic_write import write_text_atomic
 SUBSTRATE_AUDIENCE_PREFIX = "https://substrate.office.com/"
 
 
-def is_valid_substrate_jwe(token: str) -> bool:
-    """Validate that token is a structurally sound 5-segment JWE.
+_JWE_ENCRYPTION_SIZES = {
+    # enc: (IV 字节数, tag 字节数, 密文块大小；GCM 无块对齐要求)
+    "A128GCM": (12, 16, 1),
+    "A192GCM": (12, 16, 1),
+    "A256GCM": (12, 16, 1),
+    "A128CBC-HS256": (16, 16, 16),
+    "A192CBC-HS384": (16, 24, 16),
+    "A256CBC-HS512": (16, 32, 16),
+}
 
-    A valid JWE consists of 5 segments: header.encrypted_key.iv.ciphertext.tag.
-    When alg is 'dir' (Direct Encryption, RFC 7516, standard for Microsoft personal
-    Substrate JWE), the encrypted_key segment is legitimately empty.
-    """
+
+def _decode_jwe_segment(segment: str) -> bytes:
+    if segment and not re.fullmatch(r"[A-Za-z0-9_-]+", segment):
+        raise ValueError("Invalid JWE Base64url alphabet")
+    decoded = base64.b64decode(
+        segment + "=" * (-len(segment) % 4), altchars=b"-_", validate=True,
+    )
+    if base64.urlsafe_b64encode(decoded).decode("ascii").rstrip("=") != segment:
+        raise ValueError("Non-canonical JWE Base64url encoding")
+    return decoded
+
+
+def _unique_jwe_header(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    header: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in header:
+            raise ValueError("Duplicate JWE header member")
+        header[key] = value
+    return header
+
+
+def _reject_jwe_json_constant(_value: str) -> None:
+    raise ValueError("Non-JSON constant in JWE header")
+
+
+def is_valid_substrate_jwe(token: str) -> bool:
+    """检查支持的紧凑 JWE 结构及公开 aud 冲突，不解密或认证微软凭据。"""
     if not isinstance(token, str):
         return False
     parts = token.strip().split(".")
     if len(parts) != 5:
         return False
-    for p in parts:
-        if p and not re.fullmatch(r"[A-Za-z0-9_-]+", p):
+    try:
+        protected, encrypted_key, iv, ciphertext, tag = map(_decode_jwe_segment, parts)
+        header = json.loads(
+            protected.decode("utf-8"),
+            object_pairs_hook=_unique_jwe_header,
+            parse_constant=_reject_jwe_json_constant,
+        )
+    except (ValueError, RecursionError):
+        return False
+    if not isinstance(header, dict):
+        return False
+    alg, enc = header.get("alg"), header.get("enc")
+    if not isinstance(alg, str) or alg not in ("dir", "RSA-OAEP", "RSA-OAEP-256"):
+        return False
+    if not isinstance(enc, str) or enc not in _JWE_ENCRYPTION_SIZES:
+        return False
+    # dir 的密钥由带外提供，只有这种算法允许空 encrypted_key。
+    if (alg == "dir") != (not encrypted_key):
+        return False
+    iv_size, tag_size, block_size = _JWE_ENCRYPTION_SIZES[enc]
+    if len(iv) != iv_size or len(tag) != tag_size:
+        return False
+    if not ciphertext or len(ciphertext) % block_size:
+        return False
+    if "aud" in header:
+        audiences = [header["aud"]] if isinstance(header["aud"], str) else header["aud"]
+        if not isinstance(audiences, list) or not audiences:
             return False
-    header_b64 = parts[0] + "=" * (-len(parts[0]) % 4)
-    try:
-        header = json.loads(base64.urlsafe_b64decode(header_b64))
-    except Exception:
-        return False
-    if not isinstance(header, dict) or not header:
-        return False
-    alg = header.get("alg")
-    enc = header.get("enc")
-    if not isinstance(alg, str) or not alg.strip():
-        return False
-    if not isinstance(enc, str) or not enc.strip():
-        return False
-    if alg == "dir" and parts[1]:
-        return False
-    if alg != "dir" and not parts[1]:
-        return False
-    if not parts[2] or not parts[3] or not parts[4]:
-        return False
-    try:
-        for part in parts[2:5]:
-            base64.urlsafe_b64decode(part + "=" * (-len(part) % 4))
-    except Exception:
-        return False
+        if not all(
+            isinstance(audience, str) and is_substrate_token_claims({"aud": audience})
+            for audience in audiences
+        ):
+            return False
+    # 缺失公开 aud 不等于资源不匹配；真实受众与主体仍由上游鉴权。
     return True
 
 

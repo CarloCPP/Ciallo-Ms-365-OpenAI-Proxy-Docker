@@ -284,6 +284,9 @@ class SubstrateCopilotClient:
         # here would be state nothing consults. None on hand-built clients/tests.
         self._quota_sink: Callable[[dict[str, int]], None] | None = None
         try:
+            # 五段 JWE 不可按三段 JWT 解读，否则密钥段可冒充 claims。
+            if access_token.count(".") != 2:
+                raise ValueError("Not a compact JWT")
             claims = decode_jwt_payload(access_token)
             if not is_substrate_token_claims(claims):
                 raise SubstrateCopilotError("Access token is not a substrate.office.com token.")

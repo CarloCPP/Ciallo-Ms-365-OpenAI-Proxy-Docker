@@ -39,6 +39,8 @@ def normalize_studio_agent_id(value: object) -> str:
 
 
 def _studio_subject(token: str) -> tuple[str, str]:
+    if not isinstance(token, str) or token.count(".") != 2:
+        return "", ""
     try:
         claims = decode_jwt_payload(token)
     except Exception:
@@ -74,7 +76,8 @@ def extract_identity(token: str) -> tuple[str, str]:
     the signed-in identity, so we can label pool accounts without extra input.
     Returns empty strings when nothing usable is found.
     """
-    if not token:
+    # JWE 的密钥段不是身份声明，不能用于账户去重或覆盖其他 key 的绑定。
+    if not isinstance(token, str) or token.count(".") != 2:
         return "", ""
     try:
         claims = decode_jwt_payload(token)
@@ -261,6 +264,9 @@ class Account:
         if not token:
             return {"valid": False, "error": "No token", "expires_at": None, "seconds_remaining": 0}
         try:
+            # 五段 JWE 必须走下方结构检查，不能读取密钥段中的伪 claims。
+            if token.count(".") != 2:
+                raise ValueError("Not a compact JWT")
             claims = decode_jwt_payload(token)
             if not is_substrate_token_claims(claims):
                 return {
