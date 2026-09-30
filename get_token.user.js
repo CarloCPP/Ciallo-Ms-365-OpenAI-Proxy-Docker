@@ -1635,16 +1635,18 @@
     // tab -- dropping the block would make a working feature unreachable. Every
     // id stays in the DOM either way, which keeps the wiring below safe.
     function siteBadge(isHere, otherKey) {
-        const color = isHere ? '#22c55e' : '#475569';
-        const text = isHere ? tr('here_now') : tr(otherKey);
+        const activeHere = isHere || (otherKey === 'other_site_m365' && (Boolean(latestToken) || location.hostname.includes('copilot.com')));
+        const color = activeHere ? '#22c55e' : '#475569';
+        const text = activeHere ? tr('here_now') : tr(otherKey);
         return `<span style="margin-left:auto; font-weight:500; font-size:10px; color:${color};">${text}</span>`;
     }
 
     function m365Section() {
+        const sectionTitle = location.hostname.includes('copilot.com') ? ' Copilot Substrate 专线' : tr('section_m365');
         return `
                 <div style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
                     <div style="font-size:12px; color:#60f2ff; font-weight:700; margin-bottom:4px; display:flex; align-items:center;">
-                        <span style="display:flex; align-items:center;">${ic('bolt')}${tr('section_m365')}</span>
+                        <span style="display:flex; align-items:center;">${ic('bolt')}${sectionTitle}</span>
                         ${siteBadge(IS_M365_SITE, 'other_site_m365')}
                     </div>
                     <div style="font-size:10px; color:#475569; margin-bottom:8px; display:flex; align-items:center;">
@@ -1750,6 +1752,9 @@
     }
 
     function panelBody() {
+        if (latestToken) {
+            return m365Section() + captureSection() + otherProductDrawer(consumerSection());
+        }
         if (IS_CONSUMER_SITE) {
             return consumerSection() + otherProductDrawer(m365Section() + captureSection());
         }
