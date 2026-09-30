@@ -41,7 +41,6 @@
     // captures both tokens (the outgoing-frame tap stays Substrate-only).
     // copilot.microsoft.com is already covered by the
     // https://*.microsoft.com/* @match, so no new @match is needed.
-    const SUBSTRATE_WS_RE = /wss:\/\/substrate\.office\.com\/.*[?&]access_token=([^&]+)/;
     const CONSUMER_WS_RE = /wss:\/\/(?:copilot\.microsoft\.com|(?:[a-z0-9-]+\.)*copilot\.com)\/.*[?&]accessToken=([^&]+)/;
     const CONSUMER_IDENTITY_RE = /[?&]X-UserIdentityType=([^&]+)/;
     // Which product the current tab belongs to. The two Copilots live on
