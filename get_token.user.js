@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      1.0.74
+// @version      1.0.75
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://microsoft365.com/*
@@ -33,7 +33,7 @@
 (function() {
     'use strict';
 
-    const SCRIPT_VERSION = '1.0.74';
+    const SCRIPT_VERSION = '1.0.75';
     const SUBSTRATE_WS_RE = /wss:\/\/substrate\.office\.com\/.*[?&]access_token=([^&]+)/;
     const M365_RT_CLIENT_ID = '4765445b-32c6-49b0-83e6-1d93765276ca';
     // Consumer (personal-account) Copilot puts its ChatAI token in the chat
