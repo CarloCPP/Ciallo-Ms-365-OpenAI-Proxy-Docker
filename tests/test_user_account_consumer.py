@@ -612,16 +612,45 @@ def test_updating_proxy_or_metadata_does_not_revive_expired_jwe(tmp_path):
     import time
     app = make_test_app(tmp_path)
     store = app.state.account_store
-    jwe = "eyJhbGciOiJSU0EtT0FFUCJ9.a.b.c.d"
+    jwe = "eyJhbGciOiJSU0EtT0FFUCIsImVuYyI6IkEyNTZHQ00ifQ.a.b.c.d"
     account = store.add(name="JWE User", token=jwe)
+    assert account.token_updated_at > 0
 
     # Fast forward token_updated_at past 1 hour
     account.token_updated_at = time.time() - 3700
+    store._save()
     assert store.get(account.id).token_status()["valid"] is False
 
     # Updating proxy url updates account.updated_at, but must NOT revive the token
     store.set_proxy_url(account.id, "")
     assert store.get(account.id).token_status()["valid"] is False
+
+
+def test_jwe_token_updated_at_survives_reload_and_cannot_be_revived(tmp_path):
+    import time
+    from m365_copilot_openai_proxy.account_store import AccountStore
+    persist = tmp_path / "accounts.json"
+    store = AccountStore(persist_path=persist)
+    jwe = "eyJhbGciOiJSU0EtT0FFUCIsImVuYyI6IkEyNTZHQ00ifQ.a.b.c.d"
+    account = store.add(name="JWE User", token=jwe)
+    assert account.token_updated_at > 0
+    orig_time = account.token_updated_at
+
+    # Reload store from disk and check token_updated_at is preserved
+    reloaded = AccountStore(persist_path=persist)
+    loaded_acc = reloaded.get(account.id)
+    assert loaded_acc is not None
+    assert abs(loaded_acc.token_updated_at - orig_time) < 0.001
+    assert loaded_acc.token_status()["valid"] is True
+
+    # Advance token age to expired
+    loaded_acc.token_updated_at = time.time() - 3700
+    reloaded._save()
+    assert reloaded.get(account.id).token_status()["valid"] is False
+
+    # Modifying proxy url updates updated_at, but token remains expired
+    reloaded.set_proxy_url(account.id, "")
+    assert reloaded.get(account.id).token_status()["valid"] is False
 
 
 def test_in_flight_consumer_refresh_cannot_revert_m365_provider_switch(tmp_path):
@@ -643,7 +672,7 @@ def test_in_flight_consumer_refresh_cannot_revert_m365_provider_switch(tmp_path)
     )
 
     # Switch to m365 via token update
-    jwe = "eyJhbGciOiJSU0EtT0FFUCJ9.a.b.c.d"
+    jwe = "eyJhbGciOiJSU0EtT0FFUCIsImVuYyI6IkEyNTZHQ00ifQ.a.b.c.d"
     store.update_token(account.id, jwe)
     assert store.get(account.id).provider == "m365"
 

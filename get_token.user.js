@@ -50,7 +50,7 @@
     // Hosts that belong to the M365 (work/school) Copilot. The login domains are
     // deliberately on NEITHER list: mid-login we cannot tell which product the
     // user is heading for, so the panel falls back to showing both sections.
-    const M365_SITE_HOSTS = ['m365.cloud.microsoft', 'microsoft365.com', 'office.com', 'teams.microsoft.com', 'copilot.com'];
+    const M365_SITE_HOSTS = ['m365.cloud.microsoft', 'microsoft365.com', 'office.com', 'teams.microsoft.com'];
     const IS_M365_SITE = M365_SITE_HOSTS.some(
         (h) => location.hostname === h || location.hostname.endsWith('.' + h)
     );

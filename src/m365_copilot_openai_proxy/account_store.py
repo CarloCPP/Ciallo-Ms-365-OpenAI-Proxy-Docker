@@ -272,7 +272,14 @@ class Account:
             expires_at = int(claims["exp"])
         except Exception as exc:  # noqa: BLE001 - report any decode failure to the UI
             if is_valid_substrate_jwe(token):
-                token_updated = getattr(self, "token_updated_at", 0.0) or getattr(self, "updated_at", 0.0) or now
+                token_updated = float(getattr(self, "token_updated_at", 0.0) or 0.0)
+                if token_updated <= 0:
+                    return {
+                        "valid": False,
+                        "error": "JWE token has no valid capture timestamp",
+                        "expires_at": None,
+                        "seconds_remaining": 0,
+                    }
                 expires_at = int(token_updated + 3600)
             else:
                 return {"valid": False, "error": f"Cannot decode token: {exc}", "expires_at": None, "seconds_remaining": 0}
@@ -345,6 +352,7 @@ class AccountStore:
                     name=raw.get("name", ""),
                     email=raw.get("email", ""),
                     token=raw.get("token", ""),
+                    token_updated_at=float(raw.get("token_updated_at", 0.0) or 0.0),
                     cookie_valid=bool(raw.get("cookie_valid", False)),
                     cookie_updated_at=float(raw.get("cookie_updated_at", 0.0)),
                     cookie_expires_at=float(raw.get("cookie_expires_at", 0.0)),
@@ -508,10 +516,12 @@ class AccountStore:
     def add(self, name: str = "", token: str = "", token_source: str = "manual") -> Account:
         with self._lock:
             ident_name, email = extract_identity(token)
+            now = time.time()
             acc = Account(
                 name=ident_name or name,
                 email=email,
                 token=token,
+                token_updated_at=now if token else 0.0,
                 cdp_port=self._next_cdp_port(),
                 token_source=token_source,
             )

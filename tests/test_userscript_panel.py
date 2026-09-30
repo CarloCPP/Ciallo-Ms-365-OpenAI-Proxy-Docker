@@ -242,7 +242,6 @@ def test_userscript_shows_only_the_current_products_section():
     # Credentials can only be captured on their own host, so a known product site
     # shows just that product; the other one is collapsed into a drawer.
     assert "const IS_CONSUMER_SITE = location.hostname === 'copilot.microsoft.com' || location.hostname === 'copilot.com' || location.hostname.endsWith('.copilot.com');" in SCRIPT
-    assert "'copilot.com'" in SCRIPT.split("const M365_SITE_HOSTS = [")[1].split("]")[0]
     assert "copilot.microsoft.com or copilot.com" in SCRIPT
     assert "const M365_SITE_HOSTS = [" in SCRIPT
     assert "const IS_M365_SITE = M365_SITE_HOSTS.some(" in SCRIPT

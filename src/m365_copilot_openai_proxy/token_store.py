@@ -20,7 +20,7 @@ def is_valid_substrate_jwe(token: str) -> bool:
 
     A valid JWE consists of 5 non-empty base64url segments:
     header.encrypted_key.iv.ciphertext.tag.
-    The protected header must decode to a JSON dict containing standard JWE fields.
+    The protected header must decode to a JSON dict containing required JWE fields ('alg' and 'enc').
     """
     if not isinstance(token, str):
         return False
@@ -37,7 +37,11 @@ def is_valid_substrate_jwe(token: str) -> bool:
         return False
     if not isinstance(header, dict) or not header:
         return False
-    if "alg" not in header and "enc" not in header:
+    alg = header.get("alg")
+    enc = header.get("enc")
+    if not isinstance(alg, str) or not alg.strip():
+        return False
+    if not isinstance(enc, str) or not enc.strip():
         return False
     return True
 
