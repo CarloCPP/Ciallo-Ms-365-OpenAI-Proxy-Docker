@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -12,6 +13,34 @@ from typing import Any
 from .atomic_write import write_text_atomic
 
 SUBSTRATE_AUDIENCE_PREFIX = "https://substrate.office.com/"
+
+
+def is_valid_substrate_jwe(token: str) -> bool:
+    """Validate that token is a structurally sound 5-segment JWE.
+
+    A valid JWE consists of 5 non-empty base64url segments:
+    header.encrypted_key.iv.ciphertext.tag.
+    The protected header must decode to a JSON dict containing standard JWE fields.
+    """
+    if not isinstance(token, str):
+        return False
+    parts = token.strip().split(".")
+    if len(parts) != 5:
+        return False
+    for p in parts:
+        if not p or not re.fullmatch(r"[A-Za-z0-9_-]+", p):
+            return False
+    header_b64 = parts[0] + "=" * (-len(parts[0]) % 4)
+    try:
+        header = json.loads(base64.urlsafe_b64decode(header_b64))
+    except Exception:
+        return False
+    if not isinstance(header, dict) or not header:
+        return False
+    if "alg" not in header and "enc" not in header:
+        return False
+    return True
+
 
 # Token storage paths — initialized lazily via init_token_dir() or from TOKEN_DIR env var
 _TOKEN_DIR: Path | None = None
@@ -41,23 +70,7 @@ def init_token_dir(token_dir: str) -> None:
 
 
 def decode_jwt_payload(token: str) -> dict[str, Any]:
-    parts = token.strip().split(".")
-    if len(parts) == 5:
-        header_b64 = parts[0] + "=" * (-len(parts[0]) % 4)
-        try:
-            header = json.loads(base64.urlsafe_b64decode(header_b64))
-        except Exception:
-            header = {}
-        # For 5-part opaque JWE from Microsoft Substrate Consumer/Hotmail,
-        # synthesize exp far in the future so that _is_expired / _needs_refresh
-        # trust the token rather than treating missing exp as 0 (expired).
-        return {
-            "token_format": "jwe5",
-            "header": header,
-            "aud": "https://substrate.office.com/",
-            "is_jwe": True,
-            "exp": int(time.time() + 86400),
-        }
+    parts = token.split(".")
     if len(parts) < 2 or not parts[1]:
         raise ValueError("not a JWT (expected header.payload.signature)")
     payload = parts[1]

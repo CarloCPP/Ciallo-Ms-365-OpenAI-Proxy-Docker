@@ -29,7 +29,7 @@ from .substrate_parse import (
     _split_snapshot_lead,
     clean_m365_citations,
 )
-from .token_store import decode_jwt_payload, is_substrate_token_claims
+from .token_store import decode_jwt_payload, is_substrate_token_claims, is_valid_substrate_jwe
 
 # Re-exported from substrate_parse so existing imports and test monkeypatches
 # that reference these names via `substrate_client.<name>` keep working after
@@ -285,20 +285,27 @@ class SubstrateCopilotClient:
         self._quota_sink: Callable[[dict[str, int]], None] | None = None
         try:
             claims = decode_jwt_payload(access_token)
+            if not is_substrate_token_claims(claims):
+                raise SubstrateCopilotError("Access token is not a substrate.office.com token.")
+            if claims.get("exp") and time.time() > claims.get("exp", 0):
+                raise SubstrateCopilotError(
+                    "Access token expired and could not be auto-refreshed. "
+                    "Re-push this account's token/cookies from the browser userscript "
+                    "(one-click push on the M365 Copilot page), or trigger a cookie "
+                    "refresh from the admin page for this account."
+                )
+            self._oid = claims["oid"]
+            self._tid = claims["tid"]
+            self._is_consumer = bool(self._tid == "84df9e7f-e9f6-40af-b435-aaaaaaaaaaaa")
+        except SubstrateCopilotError:
+            raise
         except Exception as exc:
-            raise SubstrateCopilotError(f"Cannot decode access token: {exc}") from exc
-        if not is_substrate_token_claims(claims):
-            raise SubstrateCopilotError("Access token is not a substrate.office.com token.")
-        if claims.get("exp") and time.time() > claims.get("exp", 0):
-            raise SubstrateCopilotError(
-                "Access token expired and could not be auto-refreshed. "
-                "Re-push this account's token/cookies from the browser userscript "
-                "(one-click push on the M365 Copilot page), or trigger a cookie "
-                "refresh from the admin page for this account."
-            )
-        self._oid: str = claims.get("oid") or "00000000-0000-0000-0000-000000000000"
-        self._tid: str = claims.get("tid") or "84df9e7f-e9f6-40af-b435-aaaaaaaaaaaa"
-        self._is_consumer: bool = bool(claims.get("is_jwe") or self._tid == "84df9e7f-e9f6-40af-b435-aaaaaaaaaaaa")
+            if is_valid_substrate_jwe(access_token):
+                self._oid = "00000000-0000-0000-0000-000000000000"
+                self._tid = "84df9e7f-e9f6-40af-b435-aaaaaaaaaaaa"
+                self._is_consumer = True
+            else:
+                raise SubstrateCopilotError(f"Cannot decode access token: {exc}") from exc
 
     def _note_quota(self, payload: Any) -> None:
         """Forward this frame's quota to the sink, if it carries one.

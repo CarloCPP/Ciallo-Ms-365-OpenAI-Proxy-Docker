@@ -27,7 +27,7 @@ from .refresh_via_rt import (
 )
 from .runtime_settings import _RUN_PERMISSIONS, normalize_media_proxy_suffixes
 from .tone_options import TOOL_PLANNING_MODES, tool_planning_mode
-from .token_store import decode_jwt_payload, is_substrate_token_claims
+from .token_store import decode_jwt_payload, is_substrate_token_claims, is_valid_substrate_jwe
 from .translator import default_tool_system_prompt
 from .runtime_flags import elog
 
@@ -257,7 +257,8 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
             if not is_substrate_token_claims(claims):
                 return _json_err(400, "Token is not a substrate.office.com token")
         except Exception:
-            return _json_err(400, "Not a valid JWT token")
+            if not is_valid_substrate_jwe(token):
+                return _json_err(400, "Not a valid JWT token")
         _, email = extract_identity(token)
         # Dedupe by identity: if the pushed token belongs to an M365 account
         # already in the pool, reuse that record instead of creating a duplicate.
@@ -291,9 +292,6 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
                 app.state.key_store.update(k.id, account_id=acc.id, displaced_at=0.0)
             else:
                 acc = app.state.account_store.push_token(acc_id, token)
-                if acc is not None and acc.provider != "m365":
-                    acc.provider = "m365"
-                    app.state.account_store._save()
                 if k.displaced_at:
                     app.state.key_store.update(k.id, displaced_at=0.0)
         return {"status": "ok", "token_status": acc.token_status() if acc else None, "displaced": displaced}

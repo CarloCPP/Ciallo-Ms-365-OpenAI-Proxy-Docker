@@ -41,16 +41,17 @@
     // captures both tokens (the outgoing-frame tap stays Substrate-only).
     // copilot.microsoft.com is already covered by the
     // https://*.microsoft.com/* @match, so no new @match is needed.
-    const CONSUMER_WS_RE = /[?&](?:accessToken|access_token)=([^&]+)/i;
+    const SUBSTRATE_WS_RE = /wss:\/\/substrate\.office\.com\/.*[?&]access_token=([^&]+)/;
+    const CONSUMER_WS_RE = /wss:\/\/(?:copilot\.microsoft\.com|(?:[a-z0-9-]+\.)*copilot\.com)\/.*[?&]accessToken=([^&]+)/;
     const CONSUMER_IDENTITY_RE = /[?&]X-UserIdentityType=([^&]+)/;
     // Which product the current tab belongs to. The two Copilots live on
     // different hosts and need different pushes, so the panel leads with the
     // section that can actually work here and tucks the other one away.
-    const IS_CONSUMER_SITE = location.hostname === 'copilot.microsoft.com';
+    const IS_CONSUMER_SITE = location.hostname === 'copilot.microsoft.com' || location.hostname === 'copilot.com' || location.hostname.endsWith('.copilot.com');
     // Hosts that belong to the M365 (work/school) Copilot. The login domains are
     // deliberately on NEITHER list: mid-login we cannot tell which product the
     // user is heading for, so the panel falls back to showing both sections.
-    const M365_SITE_HOSTS = ['m365.cloud.microsoft', 'microsoft365.com', 'office.com', 'teams.microsoft.com'];
+    const M365_SITE_HOSTS = ['m365.cloud.microsoft', 'microsoft365.com', 'office.com', 'teams.microsoft.com', 'copilot.com'];
     const IS_M365_SITE = M365_SITE_HOSTS.some(
         (h) => location.hostname === h || location.hostname.endsWith('.' + h)
     );
@@ -141,11 +142,11 @@
             other_product: '其他产品',
             other_product_hint: '（当前页面用不到，展开可用跨站功能）',
             other_site_m365: '需在 m365.cloud.microsoft 操作',
-            other_site_consumer: '需在 copilot.microsoft.com 操作',
+            other_site_consumer: '需在 copilot.microsoft.com 或 copilot.com 操作',
             consumer_desc: '推送 Cookie + ChatAI Token 到当前账户',
             consumer_one_click: '一键推送个人版',
             m365_needs_site: '请先打开 m365.cloud.microsoft 并登录，本页无法采集 M365 凭据。',
-            consumer_needs_site: '请先打开 copilot.microsoft.com 并发送一条消息，本页无法采集个人版凭据。',
+            consumer_needs_site: '请先打开 copilot.microsoft.com 或 copilot.com 并发送一条消息，本页无法采集个人版凭据。',
             quick_setup_desc: '全量推送 Token 和 Cookie 到当前账户',
             one_click: '一键推送',
             manual_config: ' 手动配置',
@@ -232,11 +233,11 @@
             other_product: 'Other product',
             other_product_hint: '(not usable on this page; expand for cross-site actions)',
             other_site_m365: 'open m365.cloud.microsoft to use',
-            other_site_consumer: 'open copilot.microsoft.com to use',
+            other_site_consumer: 'open copilot.microsoft.com or copilot.com to use',
             consumer_desc: 'Push cookies + ChatAI token to the current account.',
             consumer_one_click: 'Push Personal',
             m365_needs_site: 'Open m365.cloud.microsoft and sign in first; M365 credentials cannot be collected from this page.',
-            consumer_needs_site: 'Open copilot.microsoft.com and send one message first; personal credentials cannot be collected from this page.',
+            consumer_needs_site: 'Open copilot.microsoft.com or copilot.com and send one message first; personal credentials cannot be collected from this page.',
             quick_setup_desc: 'Push Token and Cookies to the current account.',
             one_click: 'Push',
             manual_config: 'Manual Config',
@@ -585,8 +586,7 @@
 
     function getConsumerAccountId() {
         const accountId = String(cachedConsumerEmail.accountId || '').toLowerCase();
-        if (!/^(home|local):[a-z0-9._-]+$/.test(accountId)) accountId = 'home:msa_user_' + (latestConsumerIdentity || 'default').toLowerCase().replace(/[^a-z0-9._-]/g, '_');
-        return /^(home|local):[a-z0-9._-]+$/.test(accountId) ? accountId : 'home:msa_user_default';
+        return /^(home|local):[a-z0-9._-]+$/.test(accountId) ? accountId : '';
     }
 
     function getConsumerAccountName() {

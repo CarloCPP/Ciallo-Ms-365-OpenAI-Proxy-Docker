@@ -11,7 +11,7 @@ from typing import Any
 
 from .account_crypto import SENSITIVE_FIELDS, AccountCipher, load_or_create_key
 from .atomic_write import write_text_atomic
-from .token_store import decode_jwt_payload, is_substrate_token_claims
+from .token_store import decode_jwt_payload, is_substrate_token_claims, is_valid_substrate_jwe
 
 
 # Base CDP port for per-account Chromium profiles. Global admin CDP uses 9222,
@@ -106,6 +106,7 @@ class Account:
     name: str = ""
     email: str = ""
     token: str = ""
+    token_updated_at: float = 0.0
     cookie_valid: bool = False
     cookie_updated_at: float = 0.0
     cookie_expires_at: float = 0.0
@@ -268,13 +269,13 @@ class Account:
                     "expires_at": None,
                     "seconds_remaining": 0,
                 }
-            if claims.get("is_jwe"):
-                updated = getattr(self, "updated_at", None) or now
-                expires_at = int(updated + 3600)
-            else:
-                expires_at = int(claims["exp"])
+            expires_at = int(claims["exp"])
         except Exception as exc:  # noqa: BLE001 - report any decode failure to the UI
-            return {"valid": False, "error": f"Cannot decode token: {exc}", "expires_at": None, "seconds_remaining": 0}
+            if is_valid_substrate_jwe(token):
+                token_updated = getattr(self, "token_updated_at", 0.0) or getattr(self, "updated_at", 0.0) or now
+                expires_at = int(token_updated + 3600)
+            else:
+                return {"valid": False, "error": f"Cannot decode token: {exc}", "expires_at": None, "seconds_remaining": 0}
         seconds_remaining = max(0, expires_at - int(now))
         from datetime import datetime, timezone
 
@@ -524,6 +525,11 @@ class AccountStore:
             if acc is None:
                 return None
             acc.token = token
+            now = time.time()
+            acc.token_updated_at = now
+            if acc.provider != "m365":
+                acc.provider = "m365"
+                acc.consumer_updated_at = now
             _clear_studio_binding_if_subject_changed(acc, token)
             ident_name, email = extract_identity(token)
             if email:
@@ -532,7 +538,7 @@ class AccountStore:
                 acc.name = ident_name
             if token_source is not None:
                 acc.token_source = token_source
-            acc.updated_at = time.time()
+            acc.updated_at = now
             self._save()
             return acc
 
@@ -670,6 +676,8 @@ class AccountStore:
             if acc is None:
                 return None
             if expected_snapshot is not None:
+                if acc.provider != "consumer":
+                    return None
                 current_snapshot = (
                     acc.consumer_updated_at,
                     acc.consumer_token,
