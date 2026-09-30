@@ -27,7 +27,7 @@ from .refresh_via_rt import (
 )
 from .runtime_settings import _RUN_PERMISSIONS, normalize_media_proxy_suffixes
 from .tone_options import TOOL_PLANNING_MODES, tool_planning_mode
-from .token_store import decode_jwt_payload, is_substrate_token_claims
+from .token_store import decode_jwt_payload, is_substrate_token_claims, is_valid_substrate_jwe
 from .translator import default_tool_system_prompt
 from .runtime_flags import elog
 
@@ -253,11 +253,15 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         match = re.search(r"access_token=([^&\s]+)", token)
         token = match.group(1) if match else token
         try:
+            # JWE 第二段是加密密钥，不能作为 JWT claims 绕过结构与受众检查。
+            if token.count(".") != 2:
+                raise ValueError("Not a compact JWT")
             claims = decode_jwt_payload(token)
             if not is_substrate_token_claims(claims):
                 return _json_err(400, "Token is not a substrate.office.com token")
         except Exception:
-            return _json_err(400, "Not a valid JWT token")
+            if not is_valid_substrate_jwe(token):
+                return _json_err(400, "Not a valid Substrate JWT or supported JWE token")
         _, email = extract_identity(token)
         # Dedupe by identity: if the pushed token belongs to an M365 account
         # already in the pool, reuse that record instead of creating a duplicate.

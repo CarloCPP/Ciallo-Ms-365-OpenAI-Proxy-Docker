@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      1.0.74
+// @version      1.0.76
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://microsoft365.com/*
@@ -16,6 +16,9 @@
 // @match        https://*.teams.microsoft.com/*
 // @match        https://microsoft.com/*
 // @match        https://*.microsoft.com/*
+// @match        https://copilot.com/*
+// @match        https://*.copilot.com/*
+// @match        https://*.cloud.microsoft/*
 // @grant        GM_cookie
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
@@ -30,7 +33,7 @@
 (function() {
     'use strict';
 
-    const SCRIPT_VERSION = '1.0.74';
+    const SCRIPT_VERSION = '1.0.76';
     const SUBSTRATE_WS_RE = /wss:\/\/substrate\.office\.com\/.*[?&]access_token=([^&]+)/;
     const M365_RT_CLIENT_ID = '4765445b-32c6-49b0-83e6-1d93765276ca';
     // Consumer (personal-account) Copilot puts its ChatAI token in the chat
@@ -38,12 +41,12 @@
     // captures both tokens (the outgoing-frame tap stays Substrate-only).
     // copilot.microsoft.com is already covered by the
     // https://*.microsoft.com/* @match, so no new @match is needed.
-    const CONSUMER_WS_RE = /wss:\/\/copilot\.microsoft\.com\/.*[?&]accessToken=([^&]+)/;
+    const CONSUMER_WS_RE = /wss:\/\/(?:copilot\.microsoft\.com|(?:[a-z0-9-]+\.)*copilot\.com)\/.*[?&]accessToken=([^&]+)/;
     const CONSUMER_IDENTITY_RE = /[?&]X-UserIdentityType=([^&]+)/;
     // Which product the current tab belongs to. The two Copilots live on
     // different hosts and need different pushes, so the panel leads with the
     // section that can actually work here and tucks the other one away.
-    const IS_CONSUMER_SITE = location.hostname === 'copilot.microsoft.com';
+    const IS_CONSUMER_SITE = location.hostname === 'copilot.microsoft.com' || location.hostname === 'copilot.com' || location.hostname.endsWith('.copilot.com');
     // Hosts that belong to the M365 (work/school) Copilot. The login domains are
     // deliberately on NEITHER list: mid-login we cannot tell which product the
     // user is heading for, so the panel falls back to showing both sections.
@@ -123,7 +126,7 @@
             no_media_auth: '尚未捕获 Media Bearer。请先在 M365 页面生成/播放一次媒体。',
             consumer_captured: '✓ ChatAI Token 可用',
             consumer_not_captured: '⚠ 尚未捕获（先在 copilot.microsoft.com 发一条消息）',
-            no_consumer_token: '尚未捕获个人版 ChatAI Token。请在 copilot.microsoft.com 登录并发送一条消息后重试。',
+            no_consumer_token: '尚未捕获个人版 ChatAI Token。请在 copilot.microsoft.com 或 copilot.com 登录并发送一条消息后重试。',
             no_consumer_identity: '无法把 ChatAI Token 对应到唯一的微软账户。请在当前个人版账户中重新发送一条消息后再推送。',
             consumer_pushed: '个人版 Copilot 已推送，Cookie 数：',
             // ---- 两个产品分区 ----
@@ -138,11 +141,11 @@
             other_product: '其他产品',
             other_product_hint: '（当前页面用不到，展开可用跨站功能）',
             other_site_m365: '需在 m365.cloud.microsoft 操作',
-            other_site_consumer: '需在 copilot.microsoft.com 操作',
+            other_site_consumer: '需在 copilot.microsoft.com 或 copilot.com 操作',
             consumer_desc: '推送 Cookie + ChatAI Token 到当前账户',
             consumer_one_click: '一键推送个人版',
             m365_needs_site: '请先打开 m365.cloud.microsoft 并登录，本页无法采集 M365 凭据。',
-            consumer_needs_site: '请先打开 copilot.microsoft.com 并发送一条消息，本页无法采集个人版凭据。',
+            consumer_needs_site: '请先打开 copilot.microsoft.com 或 copilot.com 并发送一条消息，本页无法采集个人版凭据。',
             quick_setup_desc: '全量推送 Token 和 Cookie 到当前账户',
             one_click: '一键推送',
             manual_config: ' 手动配置',
@@ -213,7 +216,7 @@
             no_media_auth: 'No Media Bearer captured yet. Generate or play media in M365 first.',
             consumer_captured: '✓ ChatAI token captured',
             consumer_not_captured: '⚠ not captured (send a message on copilot.microsoft.com first)',
-            no_consumer_token: 'No personal ChatAI token captured yet. Sign in at copilot.microsoft.com, send one message, then retry.',
+            no_consumer_token: 'No personal ChatAI token captured yet. Sign in at copilot.microsoft.com or copilot.com, send one message, then retry.',
             no_consumer_identity: 'The ChatAI token could not be matched to one Microsoft account. Send a new message from the current personal account, then push again.',
             consumer_pushed: 'Personal Copilot pushed, cookies: ',
             // ---- the two product sections ----
@@ -229,11 +232,11 @@
             other_product: 'Other product',
             other_product_hint: '(not usable on this page; expand for cross-site actions)',
             other_site_m365: 'open m365.cloud.microsoft to use',
-            other_site_consumer: 'open copilot.microsoft.com to use',
+            other_site_consumer: 'open copilot.microsoft.com or copilot.com to use',
             consumer_desc: 'Push cookies + ChatAI token to the current account.',
             consumer_one_click: 'Push Personal',
             m365_needs_site: 'Open m365.cloud.microsoft and sign in first; M365 credentials cannot be collected from this page.',
-            consumer_needs_site: 'Open copilot.microsoft.com and send one message first; personal credentials cannot be collected from this page.',
+            consumer_needs_site: 'Open copilot.microsoft.com or copilot.com and send one message first; personal credentials cannot be collected from this page.',
             quick_setup_desc: 'Push Token and Cookies to the current account.',
             one_click: 'Push',
             manual_config: 'Manual Config',
@@ -1229,6 +1232,8 @@
             { domain: '.teams.microsoft.com' },
             { domain: '.asyncgw.teams.microsoft.com' },
             { url: 'https://copilot.microsoft.com/' },
+            { url: 'https://copilot.com/' },
+            { domain: '.copilot.com' },
             { url: 'https://www.bing.com/' },
             { domain: '.copilot.microsoft.com' },
             { domain: '.bing.com' },
@@ -1630,16 +1635,18 @@
     // tab -- dropping the block would make a working feature unreachable. Every
     // id stays in the DOM either way, which keeps the wiring below safe.
     function siteBadge(isHere, otherKey) {
-        const color = isHere ? '#22c55e' : '#475569';
-        const text = isHere ? tr('here_now') : tr(otherKey);
+        const activeHere = isHere || (otherKey === 'other_site_m365' && (Boolean(latestToken) || location.hostname.includes('copilot.com')));
+        const color = activeHere ? '#22c55e' : '#475569';
+        const text = activeHere ? tr('here_now') : tr(otherKey);
         return `<span style="margin-left:auto; font-weight:500; font-size:10px; color:${color};">${text}</span>`;
     }
 
     function m365Section() {
+        const sectionTitle = location.hostname.includes('copilot.com') ? (lang === 'en' ? ' Copilot Substrate Route' : ' Copilot Substrate 专线') : tr('section_m365');
         return `
                 <div style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
                     <div style="font-size:12px; color:#60f2ff; font-weight:700; margin-bottom:4px; display:flex; align-items:center;">
-                        <span style="display:flex; align-items:center;">${ic('bolt')}${tr('section_m365')}</span>
+                        <span style="display:flex; align-items:center;">${ic('bolt')}${sectionTitle}</span>
                         ${siteBadge(IS_M365_SITE, 'other_site_m365')}
                     </div>
                     <div style="font-size:10px; color:#475569; margin-bottom:8px; display:flex; align-items:center;">
@@ -1745,6 +1752,9 @@
     }
 
     function panelBody() {
+        if (latestToken) {
+            return m365Section() + captureSection() + otherProductDrawer(consumerSection());
+        }
         if (IS_CONSUMER_SITE) {
             return consumerSection() + otherProductDrawer(m365Section() + captureSection());
         }

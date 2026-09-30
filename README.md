@@ -776,6 +776,12 @@ Consumer refresh for <account-id>: re-minted <N> cookies
 | 持续会话 | ⚠️ | 每轮开新对话，完整历史每轮重发，因此上下文不丢；但上游侧不存在长期会话 |
 | Token / Cookie 自动保活 | ⚠️ | RT / CDP 两条 M365 链路都不适用。`-camoufox` 镜像用持久 Microsoft 登录 profile 静默重铸新 Token 与 Cookie（见[凭据与 Cookie 自动保活](#4-凭据与-cookie-自动保活camoufox可选)）；默认镜像只能手动重推 |
 
+### 个人版 Substrate JWE 专线
+
+在 `copilot.com` 登录个人 Microsoft 账号并发送一条消息后，使用油猴脚本面板中的 **Copilot Substrate Route** 一键推送 Substrate JWE；账户随后走个人版 Substrate 专线，而非 Consumer ChatAI Token 路径。JWE 不提供常规 JWT 的 `exp` 声明，本地采用 **3600 秒保守重检策略**，到时重新检查/推送凭据；这只是本地重检间隔，不代表上游 Token 的实际有效期。
+
+接收时只做**结构校验与公开受众冲突检查**，不解密，也不证明微软资源权限或主体身份：支持 `alg=dir/RSA-OAEP/RSA-OAEP-256`；`A128GCM/A192GCM/A256GCM` 要求 12 字节 IV、16 字节 tag；`A128CBC-HS256/A192CBC-HS384/A256CBC-HS512` 要求 16 字节 IV、分别 16/24/32 字节 tag，且非空密文按 16 字节块对齐。各段必须是规范 Base64url，仅 `dir` 的 encrypted_key 可以为空。公开 `aud` 若存在，必须是 Substrate 资源字符串或全部指向 Substrate 的非空数组；明确其他资源或畸形结构会在保存前拒绝，不覆盖旧凭据。没有公开 `aud` 的合法结构仍可接收，但其真实用途与可用性必须由可信采集来源及上游鉴权确认；本地 `valid` 不等于上游已认证。JWE 的密钥段不用于推断邮箱、账户去重或 Studio 主体。
+
 > **TLS 指纹是硬约束。** 个人版上游按 TLS 指纹判客户端：curl_cffi 的 chrome / edge / safari 全系会被拒（表现为收到 `challenge` 帧后连接被掐断），当前固定使用 `firefox147`。这是实测得到的经验事实，微软调整策略后可能失效。
 
 ## 企业版与个人版的差异

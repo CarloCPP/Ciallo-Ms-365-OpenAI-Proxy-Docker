@@ -11,7 +11,7 @@ from typing import Any
 
 from .account_crypto import SENSITIVE_FIELDS, AccountCipher, load_or_create_key
 from .atomic_write import write_text_atomic
-from .token_store import decode_jwt_payload, is_substrate_token_claims
+from .token_store import decode_jwt_payload, is_substrate_token_claims, is_valid_substrate_jwe
 
 
 # Base CDP port for per-account Chromium profiles. Global admin CDP uses 9222,
@@ -39,6 +39,8 @@ def normalize_studio_agent_id(value: object) -> str:
 
 
 def _studio_subject(token: str) -> tuple[str, str]:
+    if not isinstance(token, str) or token.count(".") != 2:
+        return "", ""
     try:
         claims = decode_jwt_payload(token)
     except Exception:
@@ -74,7 +76,8 @@ def extract_identity(token: str) -> tuple[str, str]:
     the signed-in identity, so we can label pool accounts without extra input.
     Returns empty strings when nothing usable is found.
     """
-    if not token:
+    # JWE 的密钥段不是身份声明，不能用于账户去重或覆盖其他 key 的绑定。
+    if not isinstance(token, str) or token.count(".") != 2:
         return "", ""
     try:
         claims = decode_jwt_payload(token)
@@ -106,6 +109,7 @@ class Account:
     name: str = ""
     email: str = ""
     token: str = ""
+    token_updated_at: float = 0.0
     cookie_valid: bool = False
     cookie_updated_at: float = 0.0
     cookie_expires_at: float = 0.0
@@ -260,6 +264,9 @@ class Account:
         if not token:
             return {"valid": False, "error": "No token", "expires_at": None, "seconds_remaining": 0}
         try:
+            # 五段 JWE 必须走下方结构检查，不能读取密钥段中的伪 claims。
+            if token.count(".") != 2:
+                raise ValueError("Not a compact JWT")
             claims = decode_jwt_payload(token)
             if not is_substrate_token_claims(claims):
                 return {
@@ -270,7 +277,18 @@ class Account:
                 }
             expires_at = int(claims["exp"])
         except Exception as exc:  # noqa: BLE001 - report any decode failure to the UI
-            return {"valid": False, "error": f"Cannot decode token: {exc}", "expires_at": None, "seconds_remaining": 0}
+            if is_valid_substrate_jwe(token):
+                token_updated = float(getattr(self, "token_updated_at", 0.0) or 0.0)
+                if token_updated <= 0:
+                    return {
+                        "valid": False,
+                        "error": "JWE token has no valid capture timestamp",
+                        "expires_at": None,
+                        "seconds_remaining": 0,
+                    }
+                expires_at = int(token_updated + 3600)
+            else:
+                return {"valid": False, "error": f"Cannot decode token: {exc}", "expires_at": None, "seconds_remaining": 0}
         seconds_remaining = max(0, expires_at - int(now))
         from datetime import datetime, timezone
 
@@ -340,6 +358,7 @@ class AccountStore:
                     name=raw.get("name", ""),
                     email=raw.get("email", ""),
                     token=raw.get("token", ""),
+                    token_updated_at=float(raw.get("token_updated_at", 0.0) or 0.0),
                     cookie_valid=bool(raw.get("cookie_valid", False)),
                     cookie_updated_at=float(raw.get("cookie_updated_at", 0.0)),
                     cookie_expires_at=float(raw.get("cookie_expires_at", 0.0)),
@@ -503,10 +522,12 @@ class AccountStore:
     def add(self, name: str = "", token: str = "", token_source: str = "manual") -> Account:
         with self._lock:
             ident_name, email = extract_identity(token)
+            now = time.time()
             acc = Account(
                 name=ident_name or name,
                 email=email,
                 token=token,
+                token_updated_at=now if token else 0.0,
                 cdp_port=self._next_cdp_port(),
                 token_source=token_source,
             )
@@ -520,6 +541,22 @@ class AccountStore:
             if acc is None:
                 return None
             acc.token = token
+            now = time.time()
+            acc.token_updated_at = now
+            if acc.provider != "m365":
+                acc.provider = "m365"
+                acc.consumer_updated_at = now
+                acc.consumer_token = ""
+                acc.consumer_identity_type = ""
+                acc.consumer_account_id = ""
+                acc.consumer_token_expires_at = 0.0
+                acc.consumer_refresh_token = ""
+                acc.consumer_refresh_token_updated_at = 0.0
+                acc.consumer_refresh_token_client_id = ""
+                acc.consumer_refresh_token_scope = ""
+                acc.consumer_refresh_token_disabled_reason = ""
+                acc.consumer_refresh_token_disabled_at = 0.0
+                acc.consumer_refresh_token_retry_after = 0.0
             _clear_studio_binding_if_subject_changed(acc, token)
             ident_name, email = extract_identity(token)
             if email:
@@ -528,7 +565,7 @@ class AccountStore:
                 acc.name = ident_name
             if token_source is not None:
                 acc.token_source = token_source
-            acc.updated_at = time.time()
+            acc.updated_at = now
             self._save()
             return acc
 
@@ -556,6 +593,7 @@ class AccountStore:
             if acc is None:
                 return None
             acc.token = ""
+            acc.token_updated_at = 0.0
             _clear_studio_agent_binding(acc)
             acc.updated_at = time.time()
             self._save()
@@ -666,6 +704,8 @@ class AccountStore:
             if acc is None:
                 return None
             if expected_snapshot is not None:
+                if acc.provider != "consumer":
+                    return None
                 current_snapshot = (
                     acc.consumer_updated_at,
                     acc.consumer_token,
@@ -903,18 +943,20 @@ class AccountStore:
             ):
                 return None
             rotated = rotated_refresh_token.strip()
+            now = time.time()
             if rotated and rotated != expected_refresh_token:
                 acc.refresh_token = rotated
-                acc.refresh_token_updated_at = time.time()
+                acc.refresh_token_updated_at = now
             acc.refresh_token_retry_after = 0.0
             acc.token = access_token
+            acc.token_updated_at = now
             _clear_studio_binding_if_subject_changed(acc, access_token)
             ident_name, email = extract_identity(access_token)
             if email:
                 acc.email = email
             if ident_name:
                 acc.name = ident_name
-            acc.updated_at = time.time()
+            acc.updated_at = now
             self._save()
             return acc
 
@@ -1035,6 +1077,7 @@ class AccountStore:
             if acc is None:
                 return None
             acc.token = ""
+            acc.token_updated_at = 0.0
             acc.media_auth_token = ""
             acc.media_auth_updated_at = 0.0
             acc.designer_auth_token = ""

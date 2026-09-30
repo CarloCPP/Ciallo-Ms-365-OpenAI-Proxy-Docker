@@ -7,8 +7,8 @@ SCRIPT = (Path(__file__).resolve().parents[1] / "get_token.user.js").read_text(e
 
 
 def test_userscript_version_is_bumped_for_panel_fix():
-    assert "// @version      1.0.74" in SCRIPT
-    assert "const SCRIPT_VERSION = '1.0.74';" in SCRIPT
+    assert "// @version      1.0.76" in SCRIPT
+    assert "const SCRIPT_VERSION = '1.0.76';" in SCRIPT
 
 
 def test_userscript_exports_media_seed_url_with_cookies():
@@ -193,6 +193,11 @@ def test_userscript_captures_consumer_chat_token_from_copilot_socket():
     assert "latestConsumerToken = decodeURIComponent" in SCRIPT
 
 
+def test_substrate_socket_is_excluded_from_consumer_token_match():
+    assert "const SUBSTRATE_WS_RE = /wss:\\/\\/substrate\\.office\\.com" in SCRIPT
+    assert "const CONSUMER_WS_RE = /wss:\\/\\/(?:copilot\\.microsoft\\.com|(?:[a-z0-9-]+\\.)*copilot\\.com)" in SCRIPT
+
+
 def test_userscript_collects_consumer_copilot_cookie_domains():
     # The consumer jar must match consumer_gate._pick_cookies: copilot/bing/live
     # alongside the shared microsoft.com. Without these the server replays a jar
@@ -201,6 +206,12 @@ def test_userscript_collects_consumer_copilot_cookie_domains():
     assert "{ domain: '.copilot.microsoft.com' }" in SCRIPT
     assert "{ domain: '.bing.com' }" in SCRIPT
     assert "{ domain: '.live.com' }" in SCRIPT
+
+
+def test_userscript_rejects_missing_consumer_account_identity():
+    assert "return /^(home|local):[a-z0-9._-]+$/.test(accountId) ? accountId : '';" in SCRIPT
+    assert "home:msa_user_default" not in SCRIPT
+    assert "msa_user_" not in SCRIPT
 
 
 def test_userscript_pushes_consumer_snapshot_to_dedicated_endpoint():
@@ -230,7 +241,8 @@ def test_userscript_splits_panel_into_m365_and_consumer_sections():
 def test_userscript_shows_only_the_current_products_section():
     # Credentials can only be captured on their own host, so a known product site
     # shows just that product; the other one is collapsed into a drawer.
-    assert "const IS_CONSUMER_SITE = location.hostname === 'copilot.microsoft.com';" in SCRIPT
+    assert "const IS_CONSUMER_SITE = location.hostname === 'copilot.microsoft.com' || location.hostname === 'copilot.com' || location.hostname.endsWith('.copilot.com');" in SCRIPT
+    assert "copilot.microsoft.com or copilot.com" in SCRIPT
     assert "const M365_SITE_HOSTS = [" in SCRIPT
     assert "const IS_M365_SITE = M365_SITE_HOSTS.some(" in SCRIPT
     assert "function panelBody()" in SCRIPT

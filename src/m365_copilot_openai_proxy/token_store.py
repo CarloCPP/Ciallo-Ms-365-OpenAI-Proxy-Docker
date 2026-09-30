@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -12,6 +13,86 @@ from typing import Any
 from .atomic_write import write_text_atomic
 
 SUBSTRATE_AUDIENCE_PREFIX = "https://substrate.office.com/"
+
+
+_JWE_ENCRYPTION_SIZES = {
+    # enc: (IV 字节数, tag 字节数, 密文块大小；GCM 无块对齐要求)
+    "A128GCM": (12, 16, 1),
+    "A192GCM": (12, 16, 1),
+    "A256GCM": (12, 16, 1),
+    "A128CBC-HS256": (16, 16, 16),
+    "A192CBC-HS384": (16, 24, 16),
+    "A256CBC-HS512": (16, 32, 16),
+}
+
+
+def _decode_jwe_segment(segment: str) -> bytes:
+    if segment and not re.fullmatch(r"[A-Za-z0-9_-]+", segment):
+        raise ValueError("Invalid JWE Base64url alphabet")
+    decoded = base64.b64decode(
+        segment + "=" * (-len(segment) % 4), altchars=b"-_", validate=True,
+    )
+    if base64.urlsafe_b64encode(decoded).decode("ascii").rstrip("=") != segment:
+        raise ValueError("Non-canonical JWE Base64url encoding")
+    return decoded
+
+
+def _unique_jwe_header(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    header: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in header:
+            raise ValueError("Duplicate JWE header member")
+        header[key] = value
+    return header
+
+
+def _reject_jwe_json_constant(_value: str) -> None:
+    raise ValueError("Non-JSON constant in JWE header")
+
+
+def is_valid_substrate_jwe(token: str) -> bool:
+    """检查支持的紧凑 JWE 结构及公开 aud 冲突，不解密或认证微软凭据。"""
+    if not isinstance(token, str):
+        return False
+    parts = token.strip().split(".")
+    if len(parts) != 5:
+        return False
+    try:
+        protected, encrypted_key, iv, ciphertext, tag = map(_decode_jwe_segment, parts)
+        header = json.loads(
+            protected.decode("utf-8"),
+            object_pairs_hook=_unique_jwe_header,
+            parse_constant=_reject_jwe_json_constant,
+        )
+    except (ValueError, RecursionError):
+        return False
+    if not isinstance(header, dict):
+        return False
+    alg, enc = header.get("alg"), header.get("enc")
+    if not isinstance(alg, str) or alg not in ("dir", "RSA-OAEP", "RSA-OAEP-256"):
+        return False
+    if not isinstance(enc, str) or enc not in _JWE_ENCRYPTION_SIZES:
+        return False
+    # dir 的密钥由带外提供，只有这种算法允许空 encrypted_key。
+    if (alg == "dir") != (not encrypted_key):
+        return False
+    iv_size, tag_size, block_size = _JWE_ENCRYPTION_SIZES[enc]
+    if len(iv) != iv_size or len(tag) != tag_size:
+        return False
+    if not ciphertext or len(ciphertext) % block_size:
+        return False
+    if "aud" in header:
+        audiences = [header["aud"]] if isinstance(header["aud"], str) else header["aud"]
+        if not isinstance(audiences, list) or not audiences:
+            return False
+        if not all(
+            isinstance(audience, str) and is_substrate_token_claims({"aud": audience})
+            for audience in audiences
+        ):
+            return False
+    # 缺失公开 aud 不等于资源不匹配；真实受众与主体仍由上游鉴权。
+    return True
+
 
 # Token storage paths — initialized lazily via init_token_dir() or from TOKEN_DIR env var
 _TOKEN_DIR: Path | None = None
@@ -41,10 +122,6 @@ def init_token_dir(token_dir: str) -> None:
 
 
 def decode_jwt_payload(token: str) -> dict[str, Any]:
-    # Reject a non-JWT up front. Indexing [1] on the split raised IndexError for
-    # an empty or malformed token, which every caller surfaced verbatim as the
-    # opaque "list index out of range" -- reported from /healthz on a deployment
-    # whose global token is unset because each account carries its own.
     parts = token.split(".")
     if len(parts) < 2 or not parts[1]:
         raise ValueError("not a JWT (expected header.payload.signature)")

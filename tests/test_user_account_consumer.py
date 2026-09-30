@@ -4,8 +4,10 @@ import asyncio
 
 from fastapi.testclient import TestClient
 
+from jwe_helpers import make_jwe
 from m365_copilot_openai_proxy.app import create_app
 from m365_copilot_openai_proxy.config import Settings
+from m365_copilot_openai_proxy.token_store import is_valid_substrate_jwe
 
 
 class ExplodingRefreshScheduler:
@@ -591,3 +593,104 @@ def test_consumer_token_is_encrypted_at_rest_and_survives_reload(tmp_path):
     assert reloaded.consumer_token == TOKEN
     assert reloaded.consumer_identity_type == "MSA"
     assert reloaded.consumer_account_id == "home:account-a"
+
+
+def test_invalid_token_dots_is_rejected_and_does_not_overwrite_token(tmp_path):
+    app = make_test_app(tmp_path)
+    client = TestClient(app)
+    account = app.state.account_store.add(name="User", token="old-token")
+    key = app.state.key_store.add(name="User Key", account_id=account.id)
+
+    res = client.post(
+        "/user/account/token",
+        headers={"Authorization": f"Bearer {key.key}"},
+        json={"token": "...."},
+    )
+    assert res.status_code == 400
+    assert app.state.account_store.get(account.id).token == "old-token"
+
+
+def test_updating_proxy_or_metadata_does_not_revive_expired_jwe(tmp_path):
+    import time
+    app = make_test_app(tmp_path)
+    store = app.state.account_store
+    jwe = make_jwe()
+    assert is_valid_substrate_jwe(jwe)
+    account = store.add(name="JWE User", token=jwe)
+    assert account.token_updated_at > 0
+
+    # Fast forward token_updated_at past 1 hour
+    account.token_updated_at = time.time() - 3700
+    store._save()
+    assert store.get(account.id).token_status()["valid"] is False
+
+    # Updating proxy url updates account.updated_at, but must NOT revive the token
+    store.set_proxy_url(account.id, "")
+    assert store.get(account.id).token_status()["valid"] is False
+
+
+def test_jwe_token_updated_at_survives_reload_and_cannot_be_revived(tmp_path):
+    import time
+    from m365_copilot_openai_proxy.account_store import AccountStore
+    persist = tmp_path / "accounts.json"
+    store = AccountStore(persist_path=persist)
+    jwe = make_jwe()
+    assert is_valid_substrate_jwe(jwe)
+    account = store.add(name="JWE User", token=jwe)
+    assert account.token_updated_at > 0
+    orig_time = account.token_updated_at
+
+    # Reload store from disk and check token_updated_at is preserved
+    reloaded = AccountStore(persist_path=persist)
+    loaded_acc = reloaded.get(account.id)
+    assert loaded_acc is not None
+    assert abs(loaded_acc.token_updated_at - orig_time) < 0.001
+    assert loaded_acc.token_status()["valid"] is True
+
+    # Advance token age to expired
+    loaded_acc.token_updated_at = time.time() - 3700
+    reloaded._save()
+    assert reloaded.get(account.id).token_status()["valid"] is False
+
+    # Modifying proxy url updates updated_at, but token remains expired
+    reloaded.set_proxy_url(account.id, "")
+    assert reloaded.get(account.id).token_status()["valid"] is False
+
+
+def test_in_flight_consumer_refresh_cannot_revert_m365_provider_switch(tmp_path):
+    app = make_test_app(tmp_path)
+    store = app.state.account_store
+    account = store.add(name="Switch User")
+    store.set_consumer_auth(
+        account.id,
+        COOKIES,
+        TOKEN,
+        "MSA",
+        consumer_account_id="home:account-a",
+    )
+    # Grab in-flight snapshot
+    snapshot = (
+        account.consumer_updated_at,
+        account.consumer_token,
+        account.consumer_account_id,
+    )
+
+    # Switch to m365 via token update
+    jwe = make_jwe({"alg": "RSA-OAEP"})
+    assert is_valid_substrate_jwe(jwe)
+    store.update_token(account.id, jwe)
+    assert store.get(account.id).provider == "m365"
+
+    # In-flight consumer refresh finishes and attempts CAS commit
+    res = store.set_consumer_auth(
+        account.id,
+        COOKIES,
+        "refreshed-consumer-token",
+        "MSA",
+        consumer_account_id="home:account-a",
+        expected_snapshot=snapshot,
+    )
+    assert res is None
+    assert store.get(account.id).provider == "m365"
+    assert store.get(account.id).token == jwe
+

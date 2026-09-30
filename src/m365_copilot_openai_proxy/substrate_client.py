@@ -29,7 +29,7 @@ from .substrate_parse import (
     _split_snapshot_lead,
     clean_m365_citations,
 )
-from .token_store import decode_jwt_payload, is_substrate_token_claims
+from .token_store import decode_jwt_payload, is_substrate_token_claims, is_valid_substrate_jwe
 
 # Re-exported from substrate_parse so existing imports and test monkeypatches
 # that reference these names via `substrate_client.<name>` keep working after
@@ -284,20 +284,31 @@ class SubstrateCopilotClient:
         # here would be state nothing consults. None on hand-built clients/tests.
         self._quota_sink: Callable[[dict[str, int]], None] | None = None
         try:
+            # 五段 JWE 不可按三段 JWT 解读，否则密钥段可冒充 claims。
+            if access_token.count(".") != 2:
+                raise ValueError("Not a compact JWT")
             claims = decode_jwt_payload(access_token)
+            if not is_substrate_token_claims(claims):
+                raise SubstrateCopilotError("Access token is not a substrate.office.com token.")
+            if time.time() > claims.get("exp", 0):
+                raise SubstrateCopilotError(
+                    "Access token expired and could not be auto-refreshed. "
+                    "Re-push this account's token/cookies from the browser userscript "
+                    "(one-click push on the M365 Copilot page), or trigger a cookie "
+                    "refresh from the admin page for this account."
+                )
+            self._oid = claims["oid"]
+            self._tid = claims["tid"]
+            self._is_consumer = bool(self._tid == "84df9e7f-e9f6-40af-b435-aaaaaaaaaaaa")
+        except SubstrateCopilotError:
+            raise
         except Exception as exc:
-            raise SubstrateCopilotError(f"Cannot decode access token: {exc}") from exc
-        if not is_substrate_token_claims(claims):
-            raise SubstrateCopilotError("Access token is not a substrate.office.com token.")
-        if time.time() > claims.get("exp", 0):
-            raise SubstrateCopilotError(
-                "Access token expired and could not be auto-refreshed. "
-                "Re-push this account's token/cookies from the browser userscript "
-                "(one-click push on the M365 Copilot page), or trigger a cookie "
-                "refresh from the admin page for this account."
-            )
-        self._oid: str = claims["oid"]
-        self._tid: str = claims["tid"]
+            if is_valid_substrate_jwe(access_token):
+                self._oid = "00000000-0000-0000-0000-000000000000"
+                self._tid = "84df9e7f-e9f6-40af-b435-aaaaaaaaaaaa"
+                self._is_consumer = True
+            else:
+                raise SubstrateCopilotError(f"Cannot decode access token: {exc}") from exc
 
     def _note_quota(self, payload: Any) -> None:
         """Forward this frame's quota to the sink, if it carries one.
@@ -334,6 +345,9 @@ class SubstrateCopilotClient:
             if studio_agent_id
             else "&agent=web"
         )
+        is_consumer = getattr(self, "_is_consumer", False)
+        scenario = "OfficeWebPremiumConsumerCopilot" if is_consumer else "OfficeWebIncludedCopilot"
+        license_type = "Premium" if is_consumer else "Starter"
         return (
             f"{_WS_BASE}/{self._oid}@{self._tid}"
             f"?ClientRequestId={req_id}"
@@ -342,7 +356,7 @@ class SubstrateCopilotClient:
             f"&access_token={token}"
             f"&variants={getattr(self, '_variants', _VARIANTS)}"
             f"&source=officeweb&product=Office&agentHost=Bizchat.FullScreen"
-            f"&licenseType=Starter{agent_surface}&scenario=OfficeWebIncludedCopilot"
+            f"&licenseType={license_type}{agent_surface}&scenario={scenario}"
         )
 
     def _chat_invoke(
@@ -637,11 +651,12 @@ class SubstrateCopilotClient:
     ) -> AsyncIterator[str]:
         req_id = str(uuid.uuid4())
         url = self._ws_url(conv_id, session_id, req_id)
+        origin = "https://copilot.com" if getattr(self, "_is_consumer", False) else "https://m365.cloud.microsoft"
         try:
             async with websockets.connect(
                 url,
                 additional_headers={
-                    "Origin": "https://m365.cloud.microsoft",
+                    "Origin": origin,
                 },
                 open_timeout=_WS_OPEN_TIMEOUT,
                 close_timeout=_WS_OPEN_TIMEOUT,
