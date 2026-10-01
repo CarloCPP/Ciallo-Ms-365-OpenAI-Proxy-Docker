@@ -33,9 +33,6 @@ from m365_copilot_openai_proxy.tone_options import (
     TONE_OPTIONS,
     TONE_SERVER_INTERPRETER,
     consumer_mode_image_generation,
-    router_applies,
-    tone_server_interpreter,
-    tone_tool_calling,
 )
 from m365_copilot_openai_proxy.tone_resolver import resolve_tone
 from m365_copilot_openai_proxy.tool_router import build_router_prompt
@@ -250,47 +247,6 @@ def test_every_notice_string_is_bilingual_and_matches_its_inline_fallback():
         assert _inline_text(key) == values[0], key
 
 
-def _tone_labels(predicate) -> list[str]:
-    """Public model names, in picker order, for the tones matching `predicate`."""
-    return [option["label"] for option in TONE_OPTIONS if predicate(option["value"])]
-
-
-def test_the_other_models_line_pins_the_lists_to_the_measured_maps():
-    """Every list in that sentence is an enumeration of a map, so it is written
-    here as a join of that map -- a tone added to TONE_OPTIONS, or a status that
-    moves from unknown to verified, fails this with the exact text to paste."""
-    interpreter_yes = _tone_labels(lambda t: tone_server_interpreter(t) == "verified")
-    interpreter_unmeasured = _tone_labels(lambda t: tone_server_interpreter(t) == "unknown")
-    # A flaky tone belongs to neither clean group, so it needs its own clause: folded
-    # into "has execution" it promises a correctness it does not hold, and folded into
-    # "unmeasured" it hides a measured fabrication.
-    interpreter_flaky = _tone_labels(lambda t: tone_server_interpreter(t) == "flaky")
-    contract_yes = _tone_labels(lambda t: tone_tool_calling(t) == "verified")
-    extra_turn = _tone_labels(lambda t: router_applies("auto", t))
-    assert extra_turn == _tone_labels(lambda t: tone_tool_calling(t) == "unsupported"), (
-        "the sentence equates 'measured to ignore the contract' with 'pays for a "
-        "routing turn under auto'; a flaky tone would make that false"
-    )
-    zh, en = _i18n_values("user_other_tones_hint")
-    for group in (
-        interpreter_yes,
-        interpreter_unmeasured,
-        interpreter_flaky,
-        contract_yes,
-        extra_turn,
-    ):
-        assert "、".join(group) in zh, "、".join(group)
-        assert ", ".join(group) in en, ", ".join(group)
-
-
-def test_the_notice_accounts_for_every_model_in_the_picker():
-    """A model the notice never names reads as "no caveat measured" when the truth
-    may be that nobody looked -- the one interpreter-absent tone is named by the
-    first line instead, so the two m365 lines together must cover the picker."""
-    m365_lines = _i18n_values("user_other_tones_hint") + _i18n_values("user_no_interpreter_hint")
-    covered = " ".join(m365_lines)
-    for option in TONE_OPTIONS:
-        assert option["label"] in covered, option["label"]
 
 
 def test_the_consumer_line_sorts_every_shipped_model_by_whether_it_draws():

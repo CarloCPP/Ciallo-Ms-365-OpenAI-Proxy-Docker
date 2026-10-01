@@ -28,6 +28,12 @@ from __future__ import annotations
 # `Grok_4_5` returned valid structured text on 2026-09-18 for the measured
 # account. The response does not attest the underlying model identity; related
 # `Grok_4_6` and suffixed variants were not promoted without a successful probe.
+# Issue #9, 2026-10-02: Muse_Spark, Grok_Auto, Grok_Reasoning,
+# Gpt_6_Sol_Reasoning and Critique each completed a fresh ordinary Substrate
+# turn with the requested random JSON marker. These are usable selectors, not
+# attestations of model identity. researcher/analyst failed like the invalid-tone
+# control and are separate Microsoft agents, so they are not ordinary tone entries.
+# Evidence: docs/evidence/issue9-m365-tones-2026-10-02.json.
 TONE_OPTIONS = [
     {"value": "Magic", "label": "Copilot_自动", "label_zh": "Copilot_自动", "label_en": "Copilot_自动"},
     {"value": "Chat", "label": "Copilot_快速答复", "label_zh": "Copilot_快速答复", "label_en": "Copilot_快速答复"},
@@ -38,6 +44,7 @@ TONE_OPTIONS = [
     {"value": "Claude_Opus", "label": "claude-opus", "label_zh": "claude-opus", "label_en": "claude-opus"},
     {"value": "Gpt_6_Astra", "label": "gpt-6_Chat", "label_zh": "gpt-6_Chat", "label_en": "gpt-6_Chat"},
     {"value": "Gpt_6_Reasoning", "label": "gpt-6", "label_zh": "gpt-6", "label_en": "gpt-6"},
+    {"value": "Gpt_6_Sol_Reasoning", "label": "gpt-6-sol", "label_zh": "gpt-6-sol", "label_en": "gpt-6-sol"},
     {"value": "Gpt_5_6_Chat", "label": "gpt-5.6_Chat", "label_zh": "gpt-5.6_Chat", "label_en": "gpt-5.6_Chat"},
     {"value": "Gpt_5_6_Reasoning", "label": "gpt-5.6", "label_zh": "gpt-5.6", "label_en": "gpt-5.6"},
     {"value": "Gpt_5_5_Chat", "label": "gpt-5.5_Chat", "label_zh": "gpt-5.5_Chat", "label_en": "gpt-5.5_Chat"},
@@ -49,6 +56,10 @@ TONE_OPTIONS = [
     {"value": "Gpt_5_2_Chat", "label": "gpt-5.2_Chat", "label_zh": "gpt-5.2_Chat", "label_en": "gpt-5.2_Chat"},
     {"value": "Gpt_5_2_Reasoning", "label": "gpt-5.2", "label_zh": "gpt-5.2", "label_en": "gpt-5.2"},
     {"value": "Grok_4_5", "label": "grok-4.5", "label_zh": "grok-4.5", "label_en": "grok-4.5"},
+    {"value": "Grok_Auto", "label": "grok-auto", "label_zh": "grok-auto", "label_en": "grok-auto"},
+    {"value": "Grok_Reasoning", "label": "grok-reasoning", "label_zh": "grok-reasoning", "label_en": "grok-reasoning"},
+    {"value": "Muse_Spark", "label": "muse-spark", "label_zh": "muse-spark", "label_en": "muse-spark"},
+    {"value": "Critique", "label": "critique", "label_zh": "critique", "label_en": "critique"},
 ]
 TONE_VALUES = {option["value"] for option in TONE_OPTIONS}
 

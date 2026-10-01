@@ -82,6 +82,7 @@
 | `Claude_Opus` | `claude-opus` | `claude-opus-持续` | Studio 路径实测成功；普通直连失败，见[使用限制](#claude-opus-使用限制) |
 | `Gpt_6_Astra` | `gpt-6_Chat` | `gpt-6_Chat-持续` | 普通直连与 Studio 实测成功，底层型号未确认 |
 | `Gpt_6_Reasoning` | `gpt-6` | `gpt-6-持续` | Studio 路径实测成功；普通直连失败，使用前见下方限制 |
+| `Gpt_6_Sol_Reasoning` | `gpt-6-sol` | `gpt-6-sol-持续` | issue #9 实测完成结构化响应；底层型号未确认 |
 | `Gpt_5_6_Chat` | `gpt-5.6_Chat` | `gpt-5.6_Chat-持续` | GPT 5.6 快速 |
 | `Gpt_5_6_Reasoning` | `gpt-5.6` | `gpt-5.6-持续` | GPT 5.6 思考 |
 | `Gpt_5_5_Chat` | `gpt-5.5_Chat` | `gpt-5.5_Chat-持续` | GPT 5.5 快速 |
@@ -93,14 +94,20 @@
 | `Gpt_5_2_Chat` | `gpt-5.2_Chat` | `gpt-5.2_Chat-持续` | GPT 5.2 快速 |
 | `Gpt_5_2_Reasoning` | `gpt-5.2` | `gpt-5.2-持续` | GPT 5.2 思考 |
 | `Grok_4_5` | `grok-4.5` | `grok-4.5-持续` | 同一 M365 账户直连实测返回结构化文本；底层型号未确认 |
+| `Grok_Auto` | `grok-auto` | `grok-auto-持续` | issue #9 实测完成结构化响应 |
+| `Grok_Reasoning` | `grok-reasoning` | `grok-reasoning-持续` | issue #9 实测完成结构化响应 |
+| `Muse_Spark` | `muse-spark` | `muse-spark-持续` | issue #9 实测完成结构化响应 |
+| `Critique` | `critique` | `critique-持续` | issue #9 实测完成结构化响应 |
 
-共 **40** 个默认可选模型 ID（20 模式 × 2 变体）。目录表示可选择的 tone，**不表示当前账户能在所有路径下调用成功**。`Gpt_5_6_Chat`、`Gpt_5_3_Reasoning` 与 `Grok_4_5` 分别在此前的 08-28 / 08-25 / 09-18 复测中确认返回有效结果。
+共 **50** 个默认可选模型 ID（25 模式 × 2 变体）。目录表示可选择的 tone，**不表示当前账户能在所有路径下调用成功**。2026-10-02 对 [issue #9](https://github.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/issues/9) 缺失的 7 项逐项实测，以上新增 5 项均返回 `Completed/Success` 和正确随机 JSON 标记。[完整证据](docs/evidence/issue9-m365-tones-2026-10-02.json)不证明模型真实身份、指纹质量或工具能力。`researcher`、`analyst` 作为普通 tone 均返回调用错误，不加入默认目录；微软将其定义为独立 agent，不能用一个普通 tone 名称代替接入。
 
-**与历史默认列表完全相同的旧配置会在升级时自动迁移**，包括加入 Grok 之前的 19 模式列表、加入 Astra 之前的 17 模式列表和仅加入 Astra 的 18 模式列表。与这些历史默认列表不相同的自定义配置会被保留；需要新增模式时，请在 `/admin` → 运行设置中添加 `Grok_4_5 | grok-4.5`。
+**仅匹配实际发布过的完整默认目录时自动迁移。** schema 2 的完整 20 模式旧默认升级到 25 模式；schema 2 中已手动删减 Grok 的目录和其它自定义列表原样保留。更早未版本化的历史默认沿用原迁移规则。定制目录需要在 `/admin` → 运行设置中手动补入上表新增 tone。
 
-运行设置保存时会写入服务端维护的 `tone_options_schema_version`。经当前版本保存的目录，即使因手动移除 Grok 而恰好与旧默认列表相同，也会在重启后保持定制，不再被旧目录迁移重新扩展。
+服务端维护 `tone_options_schema_version=3`。保存后主动删除新增模式，不会在重启时被自动加回。
 
 Docker 部署升级时，需要在部署目录执行 `docker compose pull`，再执行 `docker compose up -d --force-recreate`，拉取新镜像并重建容器；之后在客户端刷新模型列表。代码推送和镜像构建不会自动更新已经运行的容器。
+
+2026-10-02 部署验收：新增 5 个模型均经 `/v1/chat/completions` 流式返回正确标记及结束帧；Router、Messages、Responses 工具闭环通过。现有部署的 12 项定制目录保持原顺序，另追加这 5 项，而非重置成完整默认目录。完整回归 2650 passed、3 skipped；Studio 缺少就绪 agent，实际回退 Router，仍不算完整矩阵通过。见 [部署证据](docs/evidence/issue9-release-acceptance-2026-10-02.json)。
 
 #### Astra 与 Reasoning 的区别及使用限制
 
@@ -739,6 +746,8 @@ userscript `1.0.82` 将推送选项改为各自 Substrate / ChatAI 标题右侧�
 **发送消息不保证同时捕获两种协议。** 当页面只建立 Substrate WebSocket 时，ChatAI 区域保持「未捕获此协议」是正常状态；换开关或继续发消息不会把 JWE 转成 ChatAI。服务端「已保存 ChatAI」与当前浏览器「已捕获 ChatAI」也是两件事：旧 profile 中保留的同主体 MSA RT 可以续出服务端 ChatAI 凭据，但无痕窗口不会因此拥有这份浏览器捕获。不要将 M365 RT、JWE 或展示邮箱拼成 ChatAI 凭据。
 
 用户页分别显示两套凭据是否已保存、当前协议及续期方式。ChatAI 的完整 RT/client/scope/主体绑定支持容器重启后的 HTTP 续期；没有 RT 时，浏览器回退仍取决于有效登录态和 Camoufox。个人 Substrate JWE 不因此获得 RT 冷启动能力，界面显示「手动重新推送」时仍需重新捕获。非活动 Substrate JWT 的匹配 RT 可以单独保存；显式激活时可初始化其保存的 Cookie 会话。
+
+2026-10-02 M365 RT 复查：部署实例强制刷新返回 200／`refreshed=true`，日志确认 `RT refresh succeeded`，Substrate Token 已更新，随后实际聊天返回 200 且标记正确。个人网页检查则只观察到 Substrate ChatHub，旧入口也将该账户重定向到 `copilot.com/chat`，未观察到 ChatAI 连接或可读取的 ChatAI 缓存授权。见 [RT 与捕获诊断](docs/evidence/rt-and-chatai-capture-2026-10-02.json)。
 
 本轮部署验收记录见 [双协议证据](docs/evidence/dual-protocol-2026-10-01.json)：2646 项回归通过；ChatAI 重启后刷新、原生 M365/个人 Substrate 流式输出、Router 和 Messages/Responses 工具闭环已观察。Studio 实际回退 Router，不能算通过；ChatAI smart 模式的 Messages/Responses 续轮仍受真实 429 阻塞。完整矩阵未通过。部署采用容器源码覆盖，重建容器会丢失覆盖，未发布新镜像。
 

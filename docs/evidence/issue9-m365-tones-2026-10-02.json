@@ -1,0 +1,510 @@
+{
+  "date": "2026-10-02",
+  "timezone": "Asia/Shanghai (live UTC 2026-10-01T17:15-17:16 is local 2026-10-02T01:15-01:16)",
+  "issue": "https://github.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/issues/9",
+  "issue_tones": [
+    "Muse_Spark",
+    "Grok_4_5",
+    "Grok_Auto",
+    "Grok_Reasoning",
+    "Gpt_6_Sol_Reasoning",
+    "Gpt_6_Astra",
+    "Gpt_6_Reasoning",
+    "Claude_Sonnet",
+    "Claude_Sonnet_Reasoning",
+    "Claude_Fable",
+    "Claude_Opus",
+    "Critique",
+    "researcher",
+    "analyst",
+    "Gpt_5_6_Reasoning",
+    "Gpt_5_6_Chat"
+  ],
+  "scope": "Probe every issue selector missing from the previous built-in M365 catalogue; existing catalogue selectors were not re-probed in this sweep.",
+  "method": {
+    "transport": "ssh -T -o BatchMode=yes m365-server docker exec --user 997 -e HOME=/home/app -i ciallo-ms365-proxy-multi /app/.venv/bin/python -",
+    "client": "Deployed SubstrateCopilotClient._chat_stream_for_turn, active per-account/tenant protocol profile",
+    "credentials": "Current enterprise account token read via AccountStore; no refresh grant or provider/key/global tone changes",
+    "conversation": "Fresh conversation and session UUIDs for each exact outgoing tone, one invocation each, no automatic retry",
+    "marker": "Unique synthetic JSON marker plus two booleans; no model self-identification question",
+    "redaction": "No tokens, cookies, refresh grants, proxy URLs, conversation IDs or account emails included"
+  },
+  "summary": {
+    "added_defaults": [
+      {
+        "tone": "Muse_Spark",
+        "label": "muse-spark",
+        "status": "usable_selector_this_account",
+        "protocol_success": true,
+        "structured_marker_ok": true
+      },
+      {
+        "tone": "Grok_Auto",
+        "label": "grok-auto",
+        "status": "usable_selector_this_account",
+        "protocol_success": true,
+        "structured_marker_ok": true
+      },
+      {
+        "tone": "Grok_Reasoning",
+        "label": "grok-reasoning",
+        "status": "usable_selector_this_account",
+        "protocol_success": true,
+        "structured_marker_ok": true
+      },
+      {
+        "tone": "Gpt_6_Sol_Reasoning",
+        "label": "gpt-6-sol",
+        "status": "usable_selector_this_account",
+        "protocol_success": true,
+        "structured_marker_ok": true
+      },
+      {
+        "tone": "Critique",
+        "label": "critique",
+        "status": "usable_selector_this_account",
+        "protocol_success": true,
+        "structured_marker_ok": true
+      }
+    ],
+    "not_added": [
+      {
+        "tone": "researcher",
+        "status": "unsupported_as_ordinary_tone_this_account",
+        "reason": "No text or type-2 completion; type-3 server invocation error, matching invalid-tone control. Researcher and Analyst are Microsoft agent products, not implemented here as ordinary tone selectors."
+      },
+      {
+        "tone": "analyst",
+        "status": "unsupported_as_ordinary_tone_this_account",
+        "reason": "No text or type-2 completion; type-3 server invocation error, matching invalid-tone control. Researcher and Analyst are Microsoft agent products, not implemented here as ordinary tone selectors."
+      }
+    ],
+    "invalid_control": "Gpt_99_Invalid_Control: no text, type-3 server invocation error",
+    "identity_caveat": "Successful selectors do not attest the underlying model family/version. Captured fields contain only card/service versions, not backend model identity.",
+    "capability_caveat": "No tool-calling, reasoning quality, image or agent workflow capability claim is made by this structured output probe."
+  },
+  "agent_source": {
+    "url": "https://www.microsoft.com/en-us/copilot/blog/2025/03/25/introducing-researcher-and-analyst-in-microsoft-365-copilot/",
+    "quote": "Today, we’re excited to introduce two first-of-their-kind reasoning agents for work: Researcher and Analyst."
+  },
+  "records": [
+    {
+      "kind": "context",
+      "utc": "2026-10-01T17:15:35.072668+00:00",
+      "provider": "m365",
+      "account_id": "acct_2eed3918214f",
+      "token_seconds_remaining": 3386,
+      "profile_source": "builtin",
+      "profile_scope": "builtin",
+      "surface": "ordinary Substrate",
+      "selector_resolution": "direct exact tone",
+      "proxy_resolution": "deployed M365 dependency convention: runtime proxy environment",
+      "fresh_conversations": true,
+      "automatic_retry": false,
+      "refresh_performed": false
+    },
+    {
+      "kind": "result",
+      "tone": "Muse_Spark",
+      "utc": "2026-10-01T17:15:44.786155+00:00",
+      "prompt": "Return only one JSON object with marker equal to \"issue9_884e2a3ef61c\", retry_A equal to true, and retry_B equal to false. This is a structured output transport check. Do not browse, call tools or describe your identity.",
+      "sent": [
+        {
+          "tone": "Muse_Spark",
+          "isStartOfSession": true
+        }
+      ],
+      "latency_ms": 9713,
+      "first_text_ms": 4557,
+      "error": "",
+      "reply": "{\"marker\":\"issue9_884e2a3ef61c\",\"retry_A\":true,\"retry_B\":false}",
+      "reply_chars": 63,
+      "frame_types": {
+        "1": 8,
+        "2": 1,
+        "3": 1
+      },
+      "completions": [
+        {
+          "turnState": "Completed",
+          "result_value": "Success",
+          "result_error": null,
+          "result_message": "{\"marker\":\"issue9_884e2a3ef61c\",\"retry_A\":true,\"retry_B\":false}"
+        }
+      ],
+      "wire_errors": [],
+      "task_ok": true,
+      "content_origins": {
+        "EarlyProgress": 1,
+        "DeepLeo": 3,
+        "missing": 1
+      },
+      "protocol_success": true,
+      "upstream_model_fields": [
+        {
+          "path": "arguments[].messages[].adaptiveCards[].version",
+          "value": "1.0"
+        },
+        {
+          "path": "item.messages[].adaptiveCards[].version",
+          "value": "1.0"
+        },
+        {
+          "path": "item.result.serviceVersion",
+          "value": "1.0.03559.55742"
+        }
+      ]
+    },
+    {
+      "kind": "result",
+      "tone": "Grok_Auto",
+      "utc": "2026-10-01T17:15:52.358712+00:00",
+      "prompt": "Return only one JSON object with marker equal to \"issue9_ca03ab506bc8\", retry_A equal to true, and retry_B equal to false. This is a structured output transport check. Do not browse, call tools or describe your identity.",
+      "sent": [
+        {
+          "tone": "Grok_Auto",
+          "isStartOfSession": true
+        }
+      ],
+      "latency_ms": 5571,
+      "first_text_ms": 2912,
+      "error": "",
+      "reply": "{\"marker\":\"issue9_ca03ab506bc8\",\"retry_A\":true,\"retry_B\":false}",
+      "reply_chars": 63,
+      "frame_types": {
+        "1": 8,
+        "2": 1,
+        "3": 1
+      },
+      "completions": [
+        {
+          "turnState": "Completed",
+          "result_value": "Success",
+          "result_error": null,
+          "result_message": "{\"marker\":\"issue9_ca03ab506bc8\",\"retry_A\":true,\"retry_B\":false}"
+        }
+      ],
+      "wire_errors": [],
+      "task_ok": true,
+      "content_origins": {
+        "EarlyProgress": 1,
+        "DeepLeo": 3,
+        "missing": 1
+      },
+      "protocol_success": true,
+      "upstream_model_fields": [
+        {
+          "path": "arguments[].messages[].adaptiveCards[].version",
+          "value": "1.0"
+        },
+        {
+          "path": "item.messages[].adaptiveCards[].version",
+          "value": "1.0"
+        },
+        {
+          "path": "item.result.serviceVersion",
+          "value": "1.0.03559.55742"
+        }
+      ]
+    },
+    {
+      "kind": "result",
+      "tone": "Grok_Reasoning",
+      "utc": "2026-10-01T17:16:00.136864+00:00",
+      "prompt": "Return only one JSON object with marker equal to \"issue9_3bb770694688\", retry_A equal to true, and retry_B equal to false. This is a structured output transport check. Do not browse, call tools or describe your identity.",
+      "sent": [
+        {
+          "tone": "Grok_Reasoning",
+          "isStartOfSession": true
+        }
+      ],
+      "latency_ms": 5778,
+      "first_text_ms": 2034,
+      "error": "",
+      "reply": "{\"marker\":\"issue9_3bb770694688\",\"retry_A\":true,\"retry_B\":false}",
+      "reply_chars": 63,
+      "frame_types": {
+        "1": 8,
+        "2": 1,
+        "3": 1
+      },
+      "completions": [
+        {
+          "turnState": "Completed",
+          "result_value": "Success",
+          "result_error": null,
+          "result_message": "{\"marker\":\"issue9_3bb770694688\",\"retry_A\":true,\"retry_B\":false}"
+        }
+      ],
+      "wire_errors": [],
+      "task_ok": true,
+      "content_origins": {
+        "EarlyProgress": 1,
+        "DeepLeo": 3,
+        "missing": 1
+      },
+      "protocol_success": true,
+      "upstream_model_fields": [
+        {
+          "path": "arguments[].messages[].adaptiveCards[].version",
+          "value": "1.0"
+        },
+        {
+          "path": "item.messages[].adaptiveCards[].version",
+          "value": "1.0"
+        },
+        {
+          "path": "item.result.serviceVersion",
+          "value": "1.0.03559.55742"
+        }
+      ]
+    },
+    {
+      "kind": "result",
+      "tone": "Gpt_6_Sol_Reasoning",
+      "utc": "2026-10-01T17:16:08.521238+00:00",
+      "prompt": "Return only one JSON object with marker equal to \"issue9_eaab6b34e773\", retry_A equal to true, and retry_B equal to false. This is a structured output transport check. Do not browse, call tools or describe your identity.",
+      "sent": [
+        {
+          "tone": "Gpt_6_Sol_Reasoning",
+          "isStartOfSession": true
+        }
+      ],
+      "latency_ms": 6383,
+      "first_text_ms": 2663,
+      "error": "",
+      "reply": "{\"marker\":\"issue9_eaab6b34e773\",\"retry_A\":true,\"retry_B\":false}",
+      "reply_chars": 63,
+      "frame_types": {
+        "1": 8,
+        "2": 1,
+        "3": 1
+      },
+      "completions": [
+        {
+          "turnState": "Completed",
+          "result_value": "Success",
+          "result_error": null,
+          "result_message": "{\"marker\":\"issue9_eaab6b34e773\",\"retry_A\":true,\"retry_B\":false}"
+        }
+      ],
+      "wire_errors": [],
+      "task_ok": true,
+      "content_origins": {
+        "EarlyProgress": 1,
+        "DeepLeo": 3,
+        "missing": 1
+      },
+      "protocol_success": true,
+      "upstream_model_fields": [
+        {
+          "path": "arguments[].messages[].adaptiveCards[].version",
+          "value": "1.0"
+        },
+        {
+          "path": "item.messages[].adaptiveCards[].version",
+          "value": "1.0"
+        },
+        {
+          "path": "item.result.serviceVersion",
+          "value": "1.0.03559.55742"
+        }
+      ]
+    },
+    {
+      "kind": "result",
+      "tone": "Critique",
+      "utc": "2026-10-01T17:16:16.252474+00:00",
+      "prompt": "Return only one JSON object with marker equal to \"issue9_72e0739e83e8\", retry_A equal to true, and retry_B equal to false. This is a structured output transport check. Do not browse, call tools or describe your identity.",
+      "sent": [
+        {
+          "tone": "Critique",
+          "isStartOfSession": true
+        }
+      ],
+      "latency_ms": 5730,
+      "first_text_ms": 2671,
+      "error": "",
+      "reply": "{\"marker\":\"issue9_72e0739e83e8\",\"retry_A\":true,\"retry_B\":false}",
+      "reply_chars": 63,
+      "frame_types": {
+        "1": 8,
+        "2": 1,
+        "3": 1
+      },
+      "completions": [
+        {
+          "turnState": "Completed",
+          "result_value": "Success",
+          "result_error": null,
+          "result_message": "{\"marker\":\"issue9_72e0739e83e8\",\"retry_A\":true,\"retry_B\":false}"
+        }
+      ],
+      "wire_errors": [],
+      "task_ok": true,
+      "content_origins": {
+        "EarlyProgress": 1,
+        "DeepLeo": 3,
+        "missing": 1
+      },
+      "protocol_success": true,
+      "upstream_model_fields": [
+        {
+          "path": "arguments[].messages[].adaptiveCards[].version",
+          "value": "1.0"
+        },
+        {
+          "path": "item.messages[].adaptiveCards[].version",
+          "value": "1.0"
+        },
+        {
+          "path": "item.result.serviceVersion",
+          "value": "1.0.03559.55742"
+        }
+      ]
+    },
+    {
+      "kind": "result",
+      "tone": "researcher",
+      "utc": "2026-10-01T17:16:18.900269+00:00",
+      "prompt": "Return only one JSON object with marker equal to \"issue9_9f6e7f787290\", retry_A equal to true, and retry_B equal to false. This is a structured output transport check. Do not browse, call tools or describe your identity.",
+      "sent": [
+        {
+          "tone": "researcher",
+          "isStartOfSession": true
+        }
+      ],
+      "latency_ms": 647,
+      "first_text_ms": null,
+      "error": "",
+      "reply": "",
+      "reply_chars": 0,
+      "frame_types": {
+        "3": 1
+      },
+      "completions": [],
+      "wire_errors": [
+        {
+          "type": 3,
+          "error": "Failed to invoke 'Chat' due to an error on the server."
+        }
+      ],
+      "task_ok": false,
+      "content_origins": {},
+      "protocol_success": false,
+      "upstream_model_fields": []
+    },
+    {
+      "kind": "result",
+      "tone": "analyst",
+      "utc": "2026-10-01T17:16:21.545552+00:00",
+      "prompt": "Return only one JSON object with marker equal to \"issue9_e04b88986cdc\", retry_A equal to true, and retry_B equal to false. This is a structured output transport check. Do not browse, call tools or describe your identity.",
+      "sent": [
+        {
+          "tone": "analyst",
+          "isStartOfSession": true
+        }
+      ],
+      "latency_ms": 644,
+      "first_text_ms": null,
+      "error": "",
+      "reply": "",
+      "reply_chars": 0,
+      "frame_types": {
+        "3": 1
+      },
+      "completions": [],
+      "wire_errors": [
+        {
+          "type": 3,
+          "error": "Failed to invoke 'Chat' due to an error on the server."
+        }
+      ],
+      "task_ok": false,
+      "content_origins": {},
+      "protocol_success": false,
+      "upstream_model_fields": []
+    },
+    {
+      "kind": "result",
+      "tone": "Gpt_99_Invalid_Control",
+      "utc": "2026-10-01T17:16:24.208859+00:00",
+      "prompt": "Return only one JSON object with marker equal to \"issue9_de687d482f55\", retry_A equal to true, and retry_B equal to false. This is a structured output transport check. Do not browse, call tools or describe your identity.",
+      "sent": [
+        {
+          "tone": "Gpt_99_Invalid_Control",
+          "isStartOfSession": true
+        }
+      ],
+      "latency_ms": 661,
+      "first_text_ms": null,
+      "error": "",
+      "reply": "",
+      "reply_chars": 0,
+      "frame_types": {
+        "3": 1
+      },
+      "completions": [],
+      "wire_errors": [
+        {
+          "type": 3,
+          "error": "Failed to invoke 'Chat' due to an error on the server."
+        }
+      ],
+      "task_ok": false,
+      "content_origins": {},
+      "protocol_success": false,
+      "upstream_model_fields": []
+    }
+  ],
+  "catalogue_smoke": {
+    "method": "Changed tone_options/runtime_settings source loaded in-memory in deployed Python; isolated temporary TOKEN_DIR; real create_app and HTTP ASGI requests, production state untouched. No test suite/build/linter invoked. Temporary directory removed on exit.",
+    "exit_code": 0,
+    "records": [
+      {
+        "kind": "migration_smoke",
+        "http_status": 200,
+        "tone_schema_version": 3,
+        "models": {
+          "gpt-6-sol": [
+            true,
+            true
+          ],
+          "grok-auto": [
+            true,
+            true
+          ],
+          "grok-reasoning": [
+            true,
+            true
+          ],
+          "muse-spark": [
+            true,
+            true
+          ],
+          "critique": [
+            true,
+            true
+          ]
+        },
+        "researcher_in_models": false,
+        "analyst_in_models": false
+      },
+      {
+        "kind": "save_smoke",
+        "http_status": 200,
+        "persisted_version": 3
+      },
+      {
+        "kind": "restart_smoke",
+        "http_status": 200,
+        "custom_catalogue_preserved": true,
+        "muse_in_models": false
+      },
+      {
+        "kind": "legacy_custom_smoke",
+        "version_2_removed_grok_preserved": true
+      }
+    ]
+  }
+}

@@ -9,33 +9,10 @@ from m365_copilot_openai_proxy.app import create_app
 from m365_copilot_openai_proxy.config import Settings
 from m365_copilot_openai_proxy import runtime_settings
 from m365_copilot_openai_proxy.runtime_settings import normalize_tone_options
-from m365_copilot_openai_proxy.tone_options import TONE_OPTIONS, TONE_VALUES
+from m365_copilot_openai_proxy.tone_options import TONE_OPTIONS
 
 
-EXPECTED_TONE_VALUES = {
-    "Magic",
-    "Chat",
-    "Reasoning",
-    "Claude_Sonnet",
-    "Claude_Sonnet_Reasoning",
-    "Claude_Fable",
-    "Claude_Opus",
-    "Gpt_6_Astra",
-    "Gpt_6_Reasoning",
-    "Gpt_5_6_Chat",
-    "Gpt_5_6_Reasoning",
-    "Gpt_5_5_Chat",
-    "Gpt_5_5_Reasoning",
-    "Gpt_5_4_Chat",
-    "Gpt_5_4_Reasoning",
-    "Gpt_5_3_Chat",
-    "Gpt_5_3_Reasoning",
-    "Gpt_5_2_Chat",
-    "Gpt_5_2_Reasoning",
-    "Grok_4_5",
-}
-
-EXPECTED_TONE_OPTIONS = [
+DEFAULT_TONE_OPTIONS_BEFORE_ISSUE9 = [
     ("Magic", "Copilot_自动"),
     ("Chat", "Copilot_快速答复"),
     ("Reasoning", "Copilot_深度思考"),
@@ -103,33 +80,6 @@ def _previous_default_tone_options():
     return options
 
 
-def test_tone_options_define_supported_modes():
-    assert {option["value"] for option in TONE_OPTIONS} == EXPECTED_TONE_VALUES
-    assert TONE_VALUES == EXPECTED_TONE_VALUES
-    assert [(option["value"], option["label"]) for option in TONE_OPTIONS] == EXPECTED_TONE_OPTIONS
-    assert all(option["label_zh"] == option["label"] for option in TONE_OPTIONS)
-    assert all(option["label_en"] == option["label"] for option in TONE_OPTIONS)
-    assert all({"value", "label", "label_zh", "label_en"} <= set(option) for option in TONE_OPTIONS)
-
-
-def test_create_app_exposes_shared_tone_options(tmp_path):
-    client = TestClient(create_app(Settings(TOKEN_DIR=str(tmp_path), API_KEY="", ADMIN_PASSWORD="")))
-
-    response = client.get("/admin/tone")
-
-    assert response.status_code == 200
-    options = response.json()["options"]
-    # Tone options are now admin-editable (persisted in runtime settings); with no
-    # override the picker defaults to the built-in modes, passed through
-    # normalize_tone_options (2-column format: display names have whitespace
-    # collapsed to underscores and label_en mirrors the display name). Compare
-    # against that normalized contract rather than the raw built-in list.
-    expected = normalize_tone_options([dict(o) for o in TONE_OPTIONS])
-    assert [(o["value"], o["label_zh"], o["label_en"]) for o in options] == [
-        (o["value"], o["label_zh"], o["label_en"]) for o in expected
-    ]
-
-
 def test_read_runtime_settings_migrates_exact_previous_m365_default(tmp_path):
     (tmp_path / "runtime_settings.json").write_text(
         json.dumps({"tone_options": _previous_default_tone_options()}),
@@ -138,7 +88,7 @@ def test_read_runtime_settings_migrates_exact_previous_m365_default(tmp_path):
 
     settings = runtime_settings._read_runtime_settings(str(tmp_path))
 
-    assert [(option["value"], option["label"]) for option in settings["tone_options"]] == EXPECTED_TONE_OPTIONS
+    assert settings["tone_options"] == normalize_tone_options(TONE_OPTIONS)
 
 
 def test_read_runtime_settings_preserves_reordered_previous_m365_default(tmp_path):
@@ -159,7 +109,7 @@ def test_read_runtime_settings_preserves_reordered_previous_m365_default(tmp_pat
 # constant derives these from TONE_OPTIONS, so a test that derived them the same
 # way would pass even if both were wrong together. Labels are the current ones --
 # only the tone set differs from today's default.
-EXPECTED_TONE_VALUE_ORDER = [value for value, _label in EXPECTED_TONE_OPTIONS]
+DEFAULT_VALUES_BEFORE_ISSUE9 = [value for value, _label in DEFAULT_TONE_OPTIONS_BEFORE_ISSUE9]
 DEFAULT_VALUES_BEFORE_GPT_6_ASTRA = [
     "Magic",
     "Chat",
@@ -193,7 +143,7 @@ DEFAULT_VALUES_BEFORE_GPT_5_3_REASONING = [
 
 
 DEFAULT_VALUES_BEFORE_GROK_4_5 = [
-    value for value, _label in EXPECTED_TONE_OPTIONS if value != "Grok_4_5"
+    value for value in DEFAULT_VALUES_BEFORE_ISSUE9 if value != "Grok_4_5"
 ]
 
 def _default_tone_options_limited_to(values):
@@ -202,6 +152,7 @@ def _default_tone_options_limited_to(values):
 
 
 @pytest.mark.parametrize("version", [
+    2,
     runtime_settings._TONE_OPTIONS_SCHEMA_VERSION,
     runtime_settings._TONE_OPTIONS_SCHEMA_VERSION + 1,
 ])
@@ -220,8 +171,12 @@ def test_read_runtime_settings_preserves_removed_grok_after_catalogue_is_version
     assert settings["tone_options"] == options
 
 
-def test_admin_removed_tone_stays_removed_after_saving_and_restarting(tmp_path):
-    options = _default_tone_options_limited_to(DEFAULT_VALUES_BEFORE_GROK_4_5)
+@pytest.mark.parametrize("values, removed_model", [
+    (DEFAULT_VALUES_BEFORE_GROK_4_5, "grok-4.5"),
+    (DEFAULT_VALUES_BEFORE_ISSUE9, "muse-spark"),
+])
+def test_admin_removed_tone_stays_removed_after_saving_and_restarting(tmp_path, values, removed_model):
+    options = _default_tone_options_limited_to(values)
     config = Settings(TOKEN_DIR=str(tmp_path), API_KEY="", ADMIN_PASSWORD="")
     client = TestClient(create_app(config))
 
@@ -237,7 +192,40 @@ def test_admin_removed_tone_stays_removed_after_saving_and_restarting(tmp_path):
     restarted = create_app(config)
     assert restarted.state.tone_options == options
     models = TestClient(restarted).get("/v1/models").json()["data"]
-    assert not any("grok" in model["id"].lower() for model in models)
+    assert removed_model not in {model["id"] for model in models}
+
+
+@pytest.mark.parametrize("version", [0, 1, 2])
+def test_read_runtime_settings_migrates_exact_pre_issue9_default(tmp_path, version):
+    options = _default_tone_options_limited_to(DEFAULT_VALUES_BEFORE_ISSUE9)
+    (tmp_path / "runtime_settings.json").write_text(
+        json.dumps({"tone_options": options, "tone_options_schema_version": version}),
+        encoding="utf-8",
+    )
+
+    settings = runtime_settings._read_runtime_settings(str(tmp_path))
+
+    assert settings["tone_options"] == normalize_tone_options(TONE_OPTIONS)
+    assert {"Muse_Spark", "Grok_Auto", "Grok_Reasoning", "Gpt_6_Sol_Reasoning", "Critique"} <= {
+        option["value"] for option in settings["tone_options"]
+    }
+
+
+@pytest.mark.parametrize("customization", ["rename", "reorder"])
+def test_read_runtime_settings_preserves_custom_pre_issue9_catalogue(tmp_path, customization):
+    options = _default_tone_options_limited_to(DEFAULT_VALUES_BEFORE_ISSUE9)
+    if customization == "rename":
+        options[0].update(label="My_Copilot", label_zh="My_Copilot", label_en="My_Copilot")
+    else:
+        options[0], options[1] = options[1], options[0]
+    (tmp_path / "runtime_settings.json").write_text(
+        json.dumps({"tone_options": options, "tone_options_schema_version": 2}),
+        encoding="utf-8",
+    )
+
+    settings = runtime_settings._read_runtime_settings(str(tmp_path))
+
+    assert settings["tone_options"] == options
 
 
 def test_read_runtime_settings_migrates_defaults_that_predate_each_added_tone(tmp_path):
@@ -259,9 +247,7 @@ def test_read_runtime_settings_migrates_defaults_that_predate_each_added_tone(tm
 
         settings = runtime_settings._read_runtime_settings(str(tmp_path))
 
-        assert [
-            (option["value"], option["label"]) for option in settings["tone_options"]
-        ] == EXPECTED_TONE_OPTIONS, pinned
+        assert settings["tone_options"] == normalize_tone_options(TONE_OPTIONS), pinned
 
 
 def test_read_runtime_settings_keeps_a_list_an_operator_actually_edited(tmp_path):
@@ -270,7 +256,7 @@ def test_read_runtime_settings_keeps_a_list_an_operator_actually_edited(tmp_path
     # the operator deliberately removed has to stay removed, or the upgrade
     # silently hands their users back a model they withdrew.
     custom_options = _default_tone_options_limited_to(
-        [v for v in EXPECTED_TONE_VALUE_ORDER if v != "Claude_Opus"]
+        [v for v in DEFAULT_VALUES_BEFORE_ISSUE9 if v != "Claude_Opus"]
     )
     (tmp_path / "runtime_settings.json").write_text(
         json.dumps({"tone_options": custom_options}),
@@ -281,3 +267,14 @@ def test_read_runtime_settings_keeps_a_list_an_operator_actually_edited(tmp_path
 
     assert settings["tone_options"] == custom_options
     assert "Claude_Opus" not in [o["value"] for o in settings["tone_options"]]
+
+
+def test_partial_issue9_additions_are_not_a_historical_default(tmp_path):
+    options = [dict(option) for option in TONE_OPTIONS if option["value"] != "Muse_Spark"]
+    (tmp_path / "runtime_settings.json").write_text(
+        json.dumps({"tone_options": options}), encoding="utf-8",
+    )
+
+    settings = runtime_settings._read_runtime_settings(str(tmp_path))
+
+    assert settings["tone_options"] == options

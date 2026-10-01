@@ -1,0 +1,66 @@
+{
+  "m365_rt": {
+    "started": 1790874061.852259,
+    "refresh_http": 200,
+    "refreshed": true,
+    "rt_present": true,
+    "rt_client": "4765445b-32c6-49b0-83e6-1d93765276ca",
+    "token_changed": true,
+    "token_status": {
+      "valid": true,
+      "expires_at": "2026-10-01T18:12:02+00:00",
+      "seconds_remaining": 4253
+    },
+    "chat_http": 200,
+    "marker_observed": true,
+    "provider": "m365",
+    "rt_success_log_observed": true
+  },
+  "personal_capture": {
+    "sockets": [
+      {
+        "host": "go.trouter.skype.com",
+        "path": "/v4/c",
+        "parameterNames": [
+          "tc",
+          "timeout",
+          "epid",
+          "ccid",
+          "dom",
+          "cor_id",
+          "con_num"
+        ]
+      },
+      {
+        "host": "substrate.office.com",
+        "path": "/m365Copilot/Chathub",
+        "parameterNames": [
+          "chatsessionid",
+          "XRoutingParameterSessionKey",
+          "clientrequestid",
+          "X-SessionId",
+          "ConversationId",
+          "access_token",
+          "variants",
+          "source",
+          "product",
+          "agentHost",
+          "licenseType",
+          "isEdu",
+          "agent",
+          "scenario"
+        ]
+      }
+    ],
+    "chatAIButtonEnabled": false,
+    "substrateButtonEnabled": true,
+    "cache": {
+      "readableChatAIRecords": 0,
+      "readableRefreshRecords": 0
+    },
+    "legacy_entry_final_host_path": "https://copilot.com/chat"
+  },
+  "server_consumer_slot_stored": true,
+  "server_consumer_rt_stored": true,
+  "conclusion": "This personal browser establishes Substrate only. Existing server ChatAI grants are separate from userscript capture. No JWE-to-ChatAI conversion performed."
+}

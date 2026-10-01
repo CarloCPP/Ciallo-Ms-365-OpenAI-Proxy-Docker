@@ -1214,3 +1214,20 @@ GET https://substrate.office.com/m365Copilot/GetConversation
 - 尚不能宣称完整验收：Studio 缺少所需现有 agent；另一个 Consumer ChatAI 账户仍有真实上游限流；个人 Responses 工具续轮首次丢失预期标记，带正文诊断的后一次完整复测通过，历史失败保留、不改写。
 
 完整分项、断流与后续请求结果见 [`docs/evidence/upstream-07-ade-2026-10-01.json`](evidence/upstream-07-ade-2026-10-01.json)。
+
+## 2026-10-02：v0.7.2 对照核查
+
+来源：[发布页](https://github.com/HEXUXIU/M365-Copilot2API/releases/tag/v0.7.2)、[三个提交的完整差异](https://github.com/HEXUXIU/M365-Copilot2API/compare/v0.7.1...v0.7.2)。本轮仅评估思路，没有复制 Go/React 代码，也没有把候选功能顺带实现。
+
+| 条目 | 本项目现状 | 判断 |
+| --- | --- | --- |
+| 模型测试结束删除临时会话 | `routes_admin_modeltest.py:16-20,122-151` 明确留下短会话；`m365_cloud_client.delete_conversation` 已具备删除能力 | 最值得采纳，减少测试污染网页会话；需跟踪测试自己的 conversation ID，不能删除用户会话 |
+| 勾选部分模型顺序测试 | `template_admin_modeltest.py:80-102` 已有单个/全部顺序测及自定义 prompt，尚无任意多选 | 有用的小型 UI 改进，不必移植整套 React 控制台 |
+| 测试请求体 64 KiB 上限 | `routes_admin_modeltest.py:82-90` 直接解析 JSON | 可借鉴边界限制，但须按本项目所有入口的统一策略设计 |
+| 分钟/小时/天趋势及本地午夜边界 | `usage_store.py:193-247` 持久化累计模型统计，没有时间序列桶 | 是可选新统计能力，不是现有半小时时区 bug 的直接修复；引入时需覆盖 DST、半小时时区 |
+| 上游 503 overload 不算 network_error | `substrate_client.py:276-290` 只将明确传输异常归为网络错误；`error_handlers.py:53-62` 不按 HTTP 503 一刀切 | 核心区分已具备，无需移植 |
+| 活跃账户加备用账户每 90 秒预热连接 | `substrate_client.py:689-708` 每轮独立建连，本项目按 Key 绑定账户，不是全局账户轮换池 | 不直接采用；会增加后台连接，且其备用账户调度不符合当前隔离模型 |
+| 图片入口仅允许 flux-3/flux-4 | `routes_api_images.py:117-128` 走现有 tone 的图像生成提示词并拒绝 Consumer | 上游专用 Flux 管线约束不适用，照搬会误拒绝我们实际支持的路径 |
+| 删除闲置 MCP 客户端、React 根路由与 Apple 风格 | 上游自身死代码和前端结构变化 | 不适用，不为此替换现有用户/管理页 |
+
+结论：优先考虑「模型测试自动清理临时会话」，其次多选测试；趋势统计是独立需求。v0.7.2 没有提供新的个人 ChatAI 捕获方式或 M365 RT 续期机制。

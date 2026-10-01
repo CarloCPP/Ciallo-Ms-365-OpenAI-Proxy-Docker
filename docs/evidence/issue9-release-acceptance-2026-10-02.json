@@ -1,0 +1,216 @@
+{
+  "target": "ciallo-ms365-proxy-multi",
+  "deployment": {
+    "backup": "/tmp/issue9-tones-1790878591.tar.gz",
+    "sha256": {
+      "src/m365_copilot_openai_proxy/tone_options.py": "c4ffe4d79e57edbf9b568cf9afa72755626c80a4ee608f4e6271dec5789f6eaa",
+      "src/m365_copilot_openai_proxy/runtime_settings.py": "da26e38a97ede1a4d8887557338dfedc4b3fdfc7c4b04adb984a1345360176f2",
+      "get_token.user.js": "a3dc33bf210c511444d7de58eed7dff8577322201d29f26349eb195e3bd95304"
+    }
+  },
+  "regression": {
+    "passed": 2650,
+    "skipped": 3,
+    "warnings": 11
+  },
+  "runtime_catalog": {
+    "status": 200,
+    "old_preserved": true,
+    "added": [
+      "Gpt_6_Sol_Reasoning",
+      "Grok_Auto",
+      "Grok_Reasoning",
+      "Muse_Spark",
+      "Critique"
+    ],
+    "visible_new_ids": [
+      "gpt-6-sol",
+      "grok-auto",
+      "grok-reasoning",
+      "muse-spark",
+      "critique"
+    ]
+  },
+  "matrix": {
+    "rows": [
+      {
+        "account": "acct_2eed3918214f",
+        "api": "chat/completions",
+        "planner": "native",
+        "model": "muse-spark",
+        "first_http": 200,
+        "actual_planner": null,
+        "passed": true,
+        "stream_terminal": true
+      },
+      {
+        "account": "acct_2eed3918214f",
+        "api": "chat/completions",
+        "planner": "native",
+        "model": "grok-auto",
+        "first_http": 200,
+        "actual_planner": null,
+        "passed": true,
+        "stream_terminal": true
+      },
+      {
+        "account": "acct_2eed3918214f",
+        "api": "chat/completions",
+        "planner": "native",
+        "model": "grok-reasoning",
+        "first_http": 200,
+        "actual_planner": null,
+        "passed": true,
+        "stream_terminal": true
+      },
+      {
+        "account": "acct_2eed3918214f",
+        "api": "chat/completions",
+        "planner": "native",
+        "model": "gpt-6-sol",
+        "first_http": 200,
+        "actual_planner": null,
+        "passed": true,
+        "stream_terminal": true
+      },
+      {
+        "account": "acct_2eed3918214f",
+        "api": "chat/completions",
+        "planner": "native",
+        "model": "critique",
+        "first_http": 200,
+        "actual_planner": null,
+        "passed": true,
+        "stream_terminal": true
+      },
+      {
+        "account": "acct_2eed3918214f",
+        "api": "chat/completions",
+        "planner": "router",
+        "model": "Copilot_快速答复",
+        "first_http": 200,
+        "actual_planner": "router",
+        "tool_valid": true,
+        "final_http": 200,
+        "marker_observed": true,
+        "passed": true
+      },
+      {
+        "account": "acct_2eed3918214f",
+        "api": "chat/completions",
+        "planner": "studio",
+        "model": "Copilot_快速答复",
+        "first_http": 200,
+        "actual_planner": "router",
+        "tool_valid": true,
+        "final_http": 200,
+        "marker_observed": true,
+        "passed": false,
+        "blocker": "Studio unavailable: fell back to router"
+      },
+      {
+        "account": "acct_2eed3918214f",
+        "api": "messages",
+        "planner": "router",
+        "model": "Copilot_快速答复",
+        "first_http": 200,
+        "actual_planner": "router",
+        "tool_valid": true,
+        "final_http": 200,
+        "marker_observed": true,
+        "passed": true
+      },
+      {
+        "account": "acct_2eed3918214f",
+        "api": "responses",
+        "planner": "router",
+        "model": "Copilot_快速答复",
+        "first_http": 200,
+        "actual_planner": "router",
+        "tool_valid": true,
+        "final_http": 200,
+        "marker_observed": true,
+        "passed": true
+      },
+      {
+        "account": "acct_b1172aff4361",
+        "api": "chat/completions",
+        "planner": "native",
+        "model": "Copilot_快速答复",
+        "first_http": 200,
+        "actual_planner": null,
+        "passed": true,
+        "stream_terminal": true
+      }
+    ],
+    "studio_ready": false,
+    "personal_provider": "m365"
+  },
+  "personal_capture": {
+    "sockets": [
+      {
+        "host": "go.trouter.skype.com",
+        "path": "/v4/c",
+        "parameterNames": [
+          "tc",
+          "timeout",
+          "epid",
+          "ccid",
+          "dom",
+          "cor_id",
+          "con_num"
+        ]
+      },
+      {
+        "host": "substrate.office.com",
+        "path": "/m365Copilot/Chathub",
+        "parameterNames": [
+          "chatsessionid",
+          "XRoutingParameterSessionKey",
+          "clientrequestid",
+          "X-SessionId",
+          "ConversationId",
+          "access_token",
+          "variants",
+          "source",
+          "product",
+          "agentHost",
+          "licenseType",
+          "isEdu",
+          "agent",
+          "scenario"
+        ]
+      }
+    ],
+    "chatAIButtonEnabled": false,
+    "substrateButtonEnabled": true,
+    "cache": {
+      "readableChatAIRecords": 0,
+      "readableRefreshRecords": 0
+    },
+    "legacy_entry_final_host_path": "https://copilot.com/chat"
+  },
+  "m365_rt": {
+    "started": 1790874061.852259,
+    "refresh_http": 200,
+    "refreshed": true,
+    "rt_present": true,
+    "rt_client": "4765445b-32c6-49b0-83e6-1d93765276ca",
+    "token_changed": true,
+    "token_status": {
+      "valid": true,
+      "expires_at": "2026-10-01T18:12:02+00:00",
+      "seconds_remaining": 4253
+    },
+    "chat_http": 200,
+    "marker_observed": true,
+    "provider": "m365",
+    "rt_success_log_observed": true
+  },
+  "full_acceptance_passed": false,
+  "limitations": [
+    "Studio account has no ready agent; explicit Studio request ran Router instead.",
+    "New tone success verifies selectors and transport only, not underlying model identity or quality.",
+    "Consumer ChatAI was not recaptured from the current Substrate-only browser; existing server ChatAI grant remains separate."
+  ]
+}

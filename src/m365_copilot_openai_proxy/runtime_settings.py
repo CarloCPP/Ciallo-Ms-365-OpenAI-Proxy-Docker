@@ -53,13 +53,17 @@ _PREVIOUS_BUILTIN_TONE_OPTIONS = [
     {"value": "Gpt_5_2_Chat", "label": "gpt-5.2_Chat", "label_zh": "gpt-5.2_Chat", "label_en": "gpt-5.2_Chat"},
     {"value": "Gpt_5_2_Reasoning", "label": "gpt-5.2_Reasoning", "label_zh": "gpt-5.2_Reasoning", "label_en": "gpt-5.2_Reasoning"},
 ]
-# Tones added after the rename above, newest first. Every release that measures a
-# new tone into _BUILTIN_TONE_OPTIONS must name it here too, because the
-# comparison below is byte-exact: a persisted default written by the release
-# *before* the tone existed matches no literal otherwise, and the operator's
-# picker silently never gains the tone no matter which image they deploy. That is
-# how production ended up two tones behind its own image and needed a hand-write.
-_TONES_ADDED_SINCE_RENAME = ("Grok_4_5", "Gpt_6_Reasoning", "Gpt_6_Astra", "Gpt_5_6_Chat", "Gpt_5_3_Reasoning")
+# Tone additions after the rename, grouped by release, newest first. Reconstruct
+# only catalogues actually shipped: five tones introduced together must not create
+# four fictional historical defaults that could overwrite an operator's edits.
+_TONE_ADDITIONS_SINCE_RENAME = (
+    ("Muse_Spark", "Grok_Auto", "Grok_Reasoning", "Gpt_6_Sol_Reasoning", "Critique"),
+    ("Grok_4_5",),
+    ("Gpt_6_Reasoning",),
+    ("Gpt_6_Astra",),
+    ("Gpt_5_6_Chat",),
+    ("Gpt_5_3_Reasoning",),
+)
 
 
 def _tone_default_without(*values: str) -> list[dict]:
@@ -72,16 +76,22 @@ def _tone_default_without(*values: str) -> list[dict]:
     return [dict(o) for o in _BUILTIN_TONE_OPTIONS if o.get("value") not in skip]
 
 
+_DEFAULT_TONE_OPTIONS_BEFORE_ISSUE9 = _tone_default_without(*_TONE_ADDITIONS_SINCE_RENAME[0])
+
+
 # Every default catalogue we have ever shipped, so an operator who never edited
 # the picker adopts the current one. Ordered newest-first only for readability;
 # the check is an equality test against each.
 _HISTORICAL_BUILTIN_TONE_OPTIONS = (
     _PREVIOUS_BUILTIN_TONE_OPTIONS,
-    # _TONES_ADDED_SINCE_RENAME is newest-first, so removing its first N entries
-    # reconstructs the catalogue as it stood N additions ago.
+    # Removing whole release groups reconstructs earlier shipped catalogues.
     *(
-        _tone_default_without(*_TONES_ADDED_SINCE_RENAME[:count])
-        for count in range(1, len(_TONES_ADDED_SINCE_RENAME) + 1)
+        _tone_default_without(*(
+            value
+            for additions in _TONE_ADDITIONS_SINCE_RENAME[:count]
+            for value in additions
+        ))
+        for count in range(1, len(_TONE_ADDITIONS_SINCE_RENAME) + 1)
     ),
 )
 # Historical OpenAI-compatible facade names. Keep this exact list only so an
@@ -118,7 +128,7 @@ _BUILTIN_CONSUMER_MODE_OPTIONS = [
     {"model": "copilot-chat", "mode": "chat", "status": "experimental"},
     {"model": "copilot-study", "mode": "study", "status": "experimental"},
 ]
-_TONE_OPTIONS_SCHEMA_VERSION = 2
+_TONE_OPTIONS_SCHEMA_VERSION = 3
 
 _RUNTIME_SETTINGS_DEFAULTS = {
     "time_zone": "Asia/Shanghai",
@@ -478,13 +488,17 @@ def _read_runtime_settings(token_dir: str, env_defaults: dict | None = None) -> 
         persisted_tone_version = 0
     tone_options = data.get("tone_options")
     if (
-        persisted_tone_version < _TONE_OPTIONS_SCHEMA_VERSION
+        persisted_tone_version < 2
         and persisted_tone_options in _HISTORICAL_BUILTIN_TONE_OPTIONS
+    ) or (
+        persisted_tone_version < _TONE_OPTIONS_SCHEMA_VERSION
+        and persisted_tone_options == _DEFAULT_TONE_OPTIONS_BEFORE_ISSUE9
     ):
         tone_options = _BUILTIN_TONE_OPTIONS
     data["tone_options"] = normalize_tone_options(tone_options)
-    # Once saved by this version, a historical-looking list may be intentional
-    # (for example, an operator removed Grok). Do not re-expand it on restart.
+    # Version 2 already protected historical-looking custom lists (e.g. removed
+    # Grok). Version 3 widens only the exact full default shipped by version 2.
+    # Once saved here, even that previous full default may be intentional.
     data["tone_options_schema_version"] = max(
         persisted_tone_version, _TONE_OPTIONS_SCHEMA_VERSION
     )
