@@ -6,7 +6,7 @@ import re
 import threading
 import time
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +70,12 @@ def _clear_studio_agent_binding(account: "Account") -> None:
     account.studio_agent_object_id = ""
 
 
+def _clear_throttle_observation(account: "Account") -> None:
+    account.throttled_until = 0.0
+    account.throttled_mode = ""
+    account.throttled_at = 0.0
+
+
 def _clear_studio_binding_if_subject_changed(account: "Account", token: str) -> None:
     if not account.studio_agent_id:
         return
@@ -108,6 +114,13 @@ def extract_identity(token: str) -> tuple[str, str]:
     return name, email
 
 
+def _substrate_display_email(token: str, value: object) -> str:
+    if not isinstance(value, str) or not is_valid_substrate_jwe(token):
+        return ""
+    email = value.strip().lower()
+    return email if len(email) <= 254 and _EMAIL_RE.fullmatch(email) else ""
+
+
 @dataclass
 class Account:
     """A single M365 Copilot account in the multi-tenant pool.
@@ -120,6 +133,9 @@ class Account:
     id: str = field(default_factory=lambda: "acct_" + uuid.uuid4().hex[:12])
     name: str = ""
     email: str = ""
+    # Browser-supplied display metadata only; never an identity/deduplication key.
+    substrate_display_email: str = ""
+    substrate_account_id: str = ""
     token: str = ""
     token_updated_at: float = 0.0
     cookie_valid: bool = False
@@ -178,6 +194,8 @@ class Account:
     # token + browser cookies below instead of a substrate JWT. None of the M365
     # refresh machinery applies; ensure_fresh short-circuits on this field.
     provider: str = "m365"
+    # Monotonic namespace for requests and refreshes across explicit switches.
+    protocol_epoch: int = 0
     # Opaque ChatAI access token lifted from the consumer chat WebSocket URL (or
     # the MSAL localStorage cache). Never exposed via public serializers (only
     # has_consumer_token bool).
@@ -186,6 +204,8 @@ class Account:
     # Stable MSAL subject (normally home:<homeAccountId>) used to keep one
     # proxy account pinned to the same personal Microsoft identity.
     consumer_account_id: str = ""
+    consumer_cookies: list[dict[str, Any]] = field(default_factory=list)
+    consumer_email: str = ""
     consumer_updated_at: float = 0.0
     # When the stored ChatAI token stops being accepted, as reported by the
     # issuer's own `expires_in` at capture/renewal time. 0 = unknown, which is
@@ -217,17 +237,29 @@ class Account:
     # Backoff after a retryable exchange failure, so an AAD blip does not retry
     # the exchange on every single request.
     consumer_refresh_token_retry_after: float = 0.0
-    # Epoch seconds until which upstream said it will refuse this account's turns,
-    # from the throttle frame's own nextAvailableAt. 0 = nothing recorded (and M365
-    # never records: its throttle frame names no time). Persisted because the value
-    # arrives inside one failed turn and is otherwise gone the moment that response
-    # is written -- rediscovering the window costs another turn, which on consumer
-    # is a real quota unit.
+    # Last request's upstream nextAvailableAt, not an account-wide availability
+    # verdict. Empty mode/time identify legacy observations with unknown scope.
     throttled_until: float = 0.0
+    throttled_mode: str = ""
+    throttled_at: float = 0.0
     # "manual" = token pushed by user (Tampermonkey / paste); "cdp" = auto-captured.
     token_source: str = "manual"
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
+
+    @property
+    def is_personal(self) -> bool:
+        if self.provider == "consumer" or is_valid_substrate_jwe(self.token):
+            return True
+        return _studio_subject(self.token)[0] == "84df9e7f-e9f6-40af-b435-aaaaaaaaaaaa"
+
+    @property
+    def display_email(self) -> str:
+        if self.provider == "consumer":
+            return self.consumer_email
+        if self.provider == "m365" and self.token.count(".") == 4:
+            return self.substrate_display_email
+        return self.email
 
     @property
     def studio_agent_ready(self) -> bool:
@@ -240,6 +272,28 @@ class Account:
             and tenant_id == self.studio_agent_tenant_id
             and object_id == self.studio_agent_object_id
         )
+
+    def protocol_states(self) -> dict[str, dict[str, Any]]:
+        paired = bool(self.token and self.consumer_token)
+        matching = bool(
+            self.substrate_account_id
+            and self.substrate_account_id == self.consumer_account_id
+            and (is_valid_substrate_jwe(self.token) or _studio_subject(self.token)[0] == "84df9e7f-e9f6-40af-b435-aaaaaaaaaaaa")
+        )
+        return {
+            "m365": {
+                "stored": bool(self.token), "active": self.provider == "m365",
+                "can_activate": bool(self.token) and (not paired or matching),
+                "identity_ready": bool(self.substrate_account_id or _studio_subject(self.token)[0]),
+                "refresh_mode": "rt" if self.refresh_token else "browser" if self.token_source == "cdp" and self.cookie_valid else "manual",
+            },
+            "consumer": {
+                "stored": bool(self.consumer_token), "active": self.provider == "consumer",
+                "can_activate": bool(self.consumer_token and self.consumer_account_id) and (not paired or matching),
+                "identity_ready": bool(self.consumer_account_id),
+                "refresh_mode": "rt" if self.consumer_refresh_token and self.consumer_refresh_token_client_id and self.consumer_refresh_token_scope and self.consumer_account_id else "browser" if self.consumer_account_id and self.consumer_cookies else "manual",
+            },
+        }
 
     def token_status(self) -> dict[str, Any]:
         """Decode the JWT and report validity / expiry, mirroring AccessTokenStore.status()."""
@@ -350,6 +404,7 @@ class AccountStore:
         for acc_id, raw in data.items():
             if not isinstance(raw, dict):
                 continue
+            legacy_consumer = "consumer_cookies" not in raw and raw.get("provider") == "consumer"
             # Decrypt sensitive fields in place. A field may be an encrypted
             # envelope (new format) or legacy plaintext (pre-encryption); a
             # field that fails to decrypt is dropped to its default rather than
@@ -360,6 +415,16 @@ class AccountStore:
                         raw[fname] = self._cipher.decrypt_value(raw[fname])
                     except ValueError:
                         raw.pop(fname, None)
+            # Legacy Consumer rows used the shared jar. Migrate it once; never
+            # seed the Substrate browser with a ChatAI cookie snapshot.
+            if legacy_consumer:
+                raw["consumer_cookies"] = raw.get("cookies", [])
+                raw["consumer_email"] = raw.get("email", "")
+                raw["cookies"] = []
+                raw["cookie_valid"] = False
+                raw["cookie_updated_at"] = 0.0
+                raw["cookie_expires_at"] = 0.0
+                changed = True
             try:
                 loaded_port = int(raw.get("cdp_port", _CDP_PORT_BASE))
                 if loaded_port in _RESERVED_CDP_PORTS:
@@ -369,6 +434,13 @@ class AccountStore:
                     id=raw.get("id", acc_id),
                     name=raw.get("name", ""),
                     email=raw.get("email", ""),
+                    substrate_display_email=_substrate_display_email(
+                        raw.get("token", ""), raw.get("substrate_display_email", ""),
+                    ),
+                    substrate_account_id=_normalize_consumer_account_id(raw.get("substrate_account_id", "")),
+                    protocol_epoch=max(0, int(raw.get("protocol_epoch", 0) or 0)),
+                    consumer_cookies=[dict(c) for c in raw.get("consumer_cookies", []) if isinstance(c, dict)] if isinstance(raw.get("consumer_cookies", []), list) else [],
+                    consumer_email=str(raw.get("consumer_email", "") or ""),
                     token=raw.get("token", ""),
                     token_updated_at=float(raw.get("token_updated_at", 0.0) or 0.0),
                     cookie_valid=bool(raw.get("cookie_valid", False)),
@@ -441,6 +513,8 @@ class AccountStore:
                         raw.get("consumer_refresh_token_retry_after", 0.0) or 0.0
                     ),
                     throttled_until=float(raw.get("throttled_until", 0.0) or 0.0),
+                    throttled_mode=str(raw.get("throttled_mode", "") or ""),
+                    throttled_at=float(raw.get("throttled_at", 0.0) or 0.0),
                     created_at=float(raw.get("created_at", time.time())),
                     updated_at=float(raw.get("updated_at", time.time())),
                 )
@@ -504,6 +578,48 @@ class AccountStore:
         with self._lock:
             return list(self._accounts.values())
 
+    def get_request_snapshot(self, acc_id: str) -> Account | None:
+        """Freeze scalar credential/provider fields under the account lock."""
+        with self._lock:
+            account = self._accounts.get(acc_id)
+            return replace(account) if account is not None else None
+
+    def is_protocol_current(self, acc_id: str, epoch: int, provider: str) -> bool:
+        with self._lock:
+            account = self._accounts.get(acc_id)
+            return bool(account is not None and account.protocol_epoch == epoch and account.provider == provider)
+
+    @staticmethod
+    def _validate_protocol_pair(account: Account, provider: str, subject: str, token: str = "") -> None:
+        if provider == "m365":
+            if not account.consumer_token:
+                return
+            personal = is_valid_substrate_jwe(token) or _studio_subject(token)[0] == "84df9e7f-e9f6-40af-b435-aaaaaaaaaaaa"
+            other_subject = account.consumer_account_id
+        else:
+            if not account.token:
+                return
+            personal = is_valid_substrate_jwe(account.token) or _studio_subject(account.token)[0] == "84df9e7f-e9f6-40af-b435-aaaaaaaaaaaa"
+            other_subject = account.substrate_account_id
+        if not personal or not subject or not other_subject or subject != other_subject:
+            raise ValueError("Both protocols require the same captured Microsoft account identity; re-push the matching account or log out before changing identities")
+
+    def activate_protocol(self, acc_id: str, provider: str) -> Account | None:
+        with self._lock:
+            account = self._accounts.get(acc_id)
+            if account is None:
+                return None
+            if provider not in ("m365", "consumer"):
+                raise ValueError("Unknown account protocol")
+            if not account.protocol_states()[provider]["can_activate"]:
+                raise ValueError("Protocol credentials or matching Microsoft identity are not available; capture and push them first")
+            if account.provider != provider:
+                account.provider = provider
+                account.protocol_epoch += 1
+                account.updated_at = time.time()
+                self._save()
+            return account
+
     def find_by_email(self, email: str) -> Account | None:
         """Find an existing account by (case-insensitive) email.
 
@@ -531,13 +647,15 @@ class AccountStore:
         return port
 
     # -------------------------------------------------------------- mutations
-    def add(self, name: str = "", token: str = "", token_source: str = "manual") -> Account:
+    def add(self, name: str = "", token: str = "", token_source: str = "manual", *, display_email: object = "", substrate_account_id: object = "") -> Account:
         with self._lock:
             ident_name, email = extract_identity(token)
             now = time.time()
             acc = Account(
                 name=ident_name or name,
                 email=email,
+                substrate_display_email=_substrate_display_email(token, display_email),
+                substrate_account_id=_normalize_consumer_account_id(substrate_account_id),
                 token=token,
                 token_updated_at=now if token else 0.0,
                 cdp_port=self._next_cdp_port(),
@@ -547,28 +665,36 @@ class AccountStore:
             self._save()
             return acc
 
-    def update_token(self, acc_id: str, token: str, token_source: str | None = None) -> Account | None:
+    def update_token(
+        self, acc_id: str, token: str, token_source: str | None = None, *,
+        display_email: object = None, substrate_account_id: object = None,
+        activate: bool = True, expected_epoch: int | None = None,
+    ) -> Account | None:
         with self._lock:
             acc = self._accounts.get(acc_id)
             if acc is None:
                 return None
+            if expected_epoch is not None and acc.protocol_epoch != expected_epoch:
+                return None
+            subject = _normalize_consumer_account_id(substrate_account_id) if substrate_account_id is not None else acc.substrate_account_id
+            if substrate_account_id is None and token != acc.token:
+                # JWT renewal can retain a captured subject only when both
+                # identity claims match. A rotated opaque JWE needs a new capture.
+                previous_subject = _studio_subject(acc.token)
+                if not previous_subject[0] or previous_subject != _studio_subject(token):
+                    subject = ""
+            self._validate_protocol_pair(acc, "m365", subject, token)
+            if acc.token and acc.substrate_account_id != subject:
+                acc.protocol_epoch += 1
+            acc.substrate_account_id = subject
+            if token != acc.token or display_email is not None:
+                acc.substrate_display_email = _substrate_display_email(token, display_email)
             acc.token = token
             now = time.time()
             acc.token_updated_at = now
-            if acc.provider != "m365":
+            if activate and acc.provider != "m365":
                 acc.provider = "m365"
-                acc.consumer_updated_at = now
-                acc.consumer_token = ""
-                acc.consumer_identity_type = ""
-                acc.consumer_account_id = ""
-                acc.consumer_token_expires_at = 0.0
-                acc.consumer_refresh_token = ""
-                acc.consumer_refresh_token_updated_at = 0.0
-                acc.consumer_refresh_token_client_id = ""
-                acc.consumer_refresh_token_scope = ""
-                acc.consumer_refresh_token_disabled_reason = ""
-                acc.consumer_refresh_token_disabled_at = 0.0
-                acc.consumer_refresh_token_retry_after = 0.0
+                acc.protocol_epoch += 1
             _clear_studio_binding_if_subject_changed(acc, token)
             ident_name, email = extract_identity(token)
             if email:
@@ -581,7 +707,7 @@ class AccountStore:
             self._save()
             return acc
 
-    def push_token(self, acc_id: str, token: str) -> Account | None:
+    def push_token(self, acc_id: str, token: str, *, display_email: object = "", substrate_account_id: object = "", activate: bool = True) -> Account | None:
         """Apply a user/admin-pushed token WITHOUT disabling on-demand refresh.
 
         A plain update_token(token_source="manual") permanently downgrades an
@@ -596,7 +722,10 @@ class AccountStore:
             if acc is None:
                 return None
             keep_cdp = acc.token_source == "cdp" and acc.cookie_valid
-        return self.update_token(acc_id, token, token_source=None if keep_cdp else "manual")
+        return self.update_token(
+            acc_id, token, token_source=None if keep_cdp else "manual", display_email=display_email,
+            substrate_account_id=substrate_account_id, activate=activate,
+        )
 
     def clear_token(self, acc_id: str) -> Account | None:
         """Wipe a bound account's token while keeping the account record."""
@@ -606,6 +735,9 @@ class AccountStore:
                 return None
             acc.token = ""
             acc.token_updated_at = 0.0
+            acc.substrate_display_email = ""
+            acc.substrate_account_id = ""
+            acc.protocol_epoch += 1
             _clear_studio_agent_binding(acc)
             acc.updated_at = time.time()
             self._save()
@@ -703,17 +835,16 @@ class AccountStore:
         consumer_refresh_token: str | None = None,
         consumer_refresh_token_client_id: str | None = None,
         consumer_refresh_token_scope: str | None = None,
+        *,
+        activate: bool = True,
+        expected_epoch: int | None = None,
     ) -> Account | None:
-        """Store a consumer-Copilot credential snapshot exported from a browser.
-
-        Flips the account to the consumer provider, which excludes it from every
-        M365 refresh path -- RT exchange, cookie replay, CDP capture are all
-        meaningless for it (see RefreshScheduler.ensure_fresh). It is still
-        scheduled, just through refresh_consumer instead.
-        """
+        """Store the ChatAI slot without touching Substrate cookies or grants."""
         with self._lock:
             acc = self._accounts.get(acc_id)
             if acc is None:
+                return None
+            if expected_epoch is not None and acc.protocol_epoch != expected_epoch:
                 return None
             if expected_snapshot is not None:
                 if acc.provider != "consumer":
@@ -731,23 +862,30 @@ class AccountStore:
                 normalized_account_id = _normalize_consumer_account_id(
                     consumer_account_id
                 )
-            acc.provider = "consumer"
-            _clear_studio_agent_binding(acc)
-            acc.cookies = [dict(cookie) for cookie in cookies if isinstance(cookie, dict)]
+            subject = normalized_account_id if normalized_account_id is not None else acc.consumer_account_id
+            self._validate_protocol_pair(acc, "consumer", subject)
+            if normalized_account_id is not None and normalized_account_id != previous_account_id:
+                _clear_throttle_observation(acc)
+                if acc.consumer_token:
+                    acc.protocol_epoch += 1
+            if activate and acc.provider != "consumer":
+                acc.provider = "consumer"
+                acc.protocol_epoch += 1
+            acc.consumer_cookies = [dict(cookie) for cookie in cookies if isinstance(cookie, dict)]
             acc.consumer_token = access_token.strip()
             acc.consumer_identity_type = (identity_type or "").strip()
             if normalized_account_id is not None:
                 acc.consumer_account_id = normalized_account_id
             normalized_email = email.strip().lower() if isinstance(email, str) else ""
             if len(normalized_email) <= 254 and _EMAIL_RE.fullmatch(normalized_email):
-                acc.email = normalized_email
+                acc.consumer_email = normalized_email
             elif (
                 normalized_account_id is not None
                 and normalized_account_id != previous_account_id
             ):
                 # A new/unknown Microsoft subject must never inherit the prior
                 # account's display email.
-                acc.email = ""
+                acc.consumer_email = ""
             now = time.time()
             acc.consumer_updated_at = now
             # An issuer that reported its own expiry replaces whatever was known.
@@ -756,12 +894,6 @@ class AccountStore:
             # would either expire a live credential early or, worse, vouch for a
             # dead one.
             acc.consumer_token_expires_at = _normalize_consumer_token_expiry(expires_at)
-            # Consumer login cookies are session cookies with no useful expiry of
-            # their own, so cookie_expires_at stays 0 and the UI's binding state
-            # rests on presence alone.
-            acc.cookie_expires_at = 0.0
-            acc.cookie_valid = bool(acc.cookies)
-            acc.cookie_updated_at = now
             # A validated RT can be committed with the ChatAI token while the
             # same store lock is held. None means "no RT in this snapshot": keep
             # the previous grant, which lets a token-only re-push avoid erasing a
@@ -791,17 +923,57 @@ class AccountStore:
             self._save()
             return acc
 
-    def set_throttled_until(self, acc_id: str, when: float) -> Account | None:
-        """Record the reset time upstream named for this account's turns.
-
-        Latest word wins, including a move backwards: the number comes from the
-        backend, not from us, so a shorter window it reports later is the truth.
-        """
+    def set_throttled_until(
+        self,
+        acc_id: str,
+        when: float,
+        *,
+        mode: str = "",
+        expected_identity: tuple[str, str] | None = None,
+        expected_epoch: int | None = None,
+    ) -> Account | None:
+        """Record the latest request's reset hint, only for its original identity."""
         with self._lock:
             acc = self._accounts.get(acc_id)
             if acc is None:
                 return None
+            if expected_epoch is not None and acc.protocol_epoch != expected_epoch:
+                return None
+            if expected_identity is not None and (
+                acc.provider, acc.consumer_account_id
+            ) != expected_identity:
+                return None
             acc.throttled_until = max(0.0, float(when))
+            now = time.time()
+            acc.throttled_mode = mode if acc.throttled_until else ""
+            acc.throttled_at = now if acc.throttled_until else 0.0
+            acc.updated_at = now
+            self._save()
+            return acc
+
+    def clear_throttled_until(
+        self,
+        acc_id: str,
+        *,
+        mode: str,
+        started_at: float,
+        expected_identity: tuple[str, str],
+        expected_epoch: int | None = None,
+    ) -> Account | None:
+        """Clear a contradicted observation, never one newer than this turn."""
+        with self._lock:
+            acc = self._accounts.get(acc_id)
+            if acc is None or (acc.provider, acc.consumer_account_id) != expected_identity:
+                return None
+            if expected_epoch is not None and acc.protocol_epoch != expected_epoch:
+                return None
+            if (
+                not acc.throttled_until
+                or (acc.throttled_mode and acc.throttled_mode != mode)
+                or started_at <= acc.throttled_at
+            ):
+                return acc
+            _clear_throttle_observation(acc)
             acc.updated_at = time.time()
             self._save()
             return acc
@@ -942,6 +1114,7 @@ class AccountStore:
         expected_access_token: str,
         access_token: str,
         rotated_refresh_token: str = "",
+        expected_epoch: int | None = None,
     ) -> Account | None:
         """Atomically apply an RT response unless newer credentials won the race."""
         with self._lock:
@@ -950,6 +1123,8 @@ class AccountStore:
                 acc is None
                 or acc.refresh_token != expected_refresh_token
                 or acc.token != expected_access_token
+                or acc.provider != "m365"
+                or (expected_epoch is not None and acc.protocol_epoch != expected_epoch)
             ):
                 return None
             rotated = rotated_refresh_token.strip()
@@ -1048,6 +1223,7 @@ class AccountStore:
         consumer_token: str,
         rotated_refresh_token: str = "",
         expires_at: float = 0.0,
+        expected_epoch: int | None = None,
     ) -> Account | None:
         """Atomically apply a consumer RT response unless newer credentials won.
 
@@ -1063,6 +1239,7 @@ class AccountStore:
                 or acc.provider != "consumer"
                 or acc.consumer_refresh_token != expected_refresh_token
                 or acc.consumer_token != expected_consumer_token
+                or (expected_epoch is not None and acc.protocol_epoch != expected_epoch)
             ):
                 return None
             fresh = str(consumer_token or "").strip()
@@ -1088,6 +1265,19 @@ class AccountStore:
                 return None
             acc.token = ""
             acc.token_updated_at = 0.0
+            acc.substrate_display_email = ""
+            acc.substrate_account_id = ""
+            acc.protocol_epoch += 1
+            acc.consumer_token = ""
+            acc.consumer_identity_type = ""
+            acc.consumer_account_id = ""
+            acc.consumer_updated_at = 0.0
+            acc.consumer_token_expires_at = 0.0
+            acc.consumer_cookies = []
+            acc.consumer_email = ""
+            acc.cookies = []
+            acc.local_storage = {}
+            _clear_throttle_observation(acc)
             acc.media_auth_token = ""
             acc.media_auth_updated_at = 0.0
             acc.designer_auth_token = ""
@@ -1110,21 +1300,7 @@ class AccountStore:
             acc.cookie_valid = False
             acc.cookie_updated_at = 0.0
             acc.cookie_expires_at = 0.0
-            # A consumer account authenticates by its ChatAI token + cookies, not
-            # the substrate token/refresh_token cleared above. Leaving provider and
-            # consumer_token in place would keep request dispatch routing through
-            # the consumer client on stale credentials -- a logout that never logs
-            # out -- while binding_state reads "none". Reset it to a blank m365
-            # account so routing, binding_state and token_status all agree it is
-            # signed out.
-            if acc.provider == "consumer":
-                acc.provider = "m365"
-                acc.consumer_token = ""
-                acc.consumer_identity_type = ""
-                acc.consumer_account_id = ""
-                acc.consumer_updated_at = 0.0
-                acc.consumer_token_expires_at = 0.0
-                acc.cookies = []
+            acc.provider = "m365"
             acc.updated_at = time.time()
             self._save()
             return acc

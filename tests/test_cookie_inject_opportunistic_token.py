@@ -6,6 +6,8 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from m365_copilot_openai_proxy.app import create_app
@@ -66,3 +68,34 @@ def test_opportunistic_token_noop_when_nothing_grabbed(tmp_path):
 
     assert wrote is False
     assert store.get(acc.id).token == ""
+
+
+@pytest.mark.parametrize("same_subject", [True, False])
+def test_personal_jwt_renewal_preserves_pair_only_for_same_subject(tmp_path, same_subject):
+    store = _store(tmp_path)
+    claims = {
+        "aud": "https://substrate.office.com/",
+        "tid": "84df9e7f-e9f6-40af-b435-aaaaaaaaaaaa",
+        "oid": "11111111-1111-1111-1111-111111111111",
+        "email": "personal@example.com", "exp": int(time.time()) + 60,
+    }
+    old = _jwt(claims)
+    account = store.add(token=old, token_source="cdp", substrate_account_id="home:alice")
+    store.set_consumer_auth(account.id, [], "chatai-token", consumer_account_id="home:alice", activate=False)
+    epoch = account.protocol_epoch
+    renewed = _jwt({**claims, "exp": int(time.time()) + 3600,
+                    "oid": claims["oid"] if same_subject else "22222222-2222-2222-2222-222222222222"})
+    if same_subject:
+        assert _apply_opportunistic_token(
+            store, account.id, account.email, renewed, expected_epoch=epoch,
+        ) is True
+        assert account.token == renewed
+        assert account.cookie_valid is True
+    else:
+        with pytest.raises(ValueError, match="same captured Microsoft account"):
+            _apply_opportunistic_token(store, account.id, account.email, renewed, expected_epoch=epoch)
+        assert account.token == old
+    assert account.substrate_account_id == "home:alice"
+    assert account.consumer_token == "chatai-token"
+    assert account.provider == "m365"
+    assert account.protocol_epoch == epoch

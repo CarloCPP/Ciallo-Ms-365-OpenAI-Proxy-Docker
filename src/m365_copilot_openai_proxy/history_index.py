@@ -51,8 +51,8 @@ def normalize_history(messages) -> list[tuple[str, str]]:
     System messages are dropped on purpose: clients routinely inject a system
     prompt that changes every turn (current time, cwd, tool inventory), which
     would break the chain on every single turn. Whitespace is collapsed so a
-    client re-wrapping its own text still matches. Non-text blocks are retained
-    as canonical JSON so Anthropic tool continuations remain on their session.
+    client re-wrapping its own text still matches. Tool blocks are retained as
+    canonical JSON; display-only thinking is excluded from session identity.
     """
     pairs: list[tuple[str, str]] = []
     for msg in messages:
@@ -87,7 +87,7 @@ def normalize_history(messages) -> list[tuple[str, str]]:
                     if isinstance(part, dict)
                     else getattr(part, "type", None)
                 )
-                if part_type == "text":
+                if part_type in {"text", "thinking", "redacted_thinking"}:
                     continue
                 if hasattr(part, "model_dump"):
                     value = part.model_dump(mode="json", exclude_none=True)

@@ -13,6 +13,7 @@ from .call_log_store import append_call_log, record_response_text
 from .config import Settings
 from .http_cache import MODELS_CACHE_CONTROL, cached_json_response
 from .models import OpenAIChatRequest
+from .reasoning import ReasoningCollector, ReasoningDelta, StreamChunk, collect_reasoning
 from .response_helpers import _openai_stream
 from .stop_sequences import apply_stop, normalize_stop
 from .routes_api_common import (
@@ -43,8 +44,8 @@ from .tone_resolver import build_models_list, normalized_session_model
 from .tone_options import effective_tool_calling, tone_tool_calling
 from .session_store import PersistentSession
 from .stream_guard import GuardedStreamingResponse
-from .sse_stream import keepalive_stream, merge_sse_headers
-from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError, SubstrateThrottled
+from .sse_stream import closing_stream, keepalive_stream, merge_sse_headers
+from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError, SubstrateNetworkError, SubstrateThrottled
 from .studio_planner import (
     PlannerTurn,
     ordered_or_answered,
@@ -504,6 +505,7 @@ def register_chat_routes(
                     media_type="text/event-stream",
                     headers=merge_sse_headers(),
                 )
+            reasoning = collect_reasoning(client, studio_client)
             # Keep the RAW model text for parsing; the media rewriter is applied
             # at delivery time below. Rewriting first base64-encodes the source
             # URL into a ?u= parameter, erasing the file extension that
@@ -683,6 +685,7 @@ def register_chat_routes(
                 studio_session if actual_planning == "studio" else session,
                 msg,
             )
+            msg = {**msg, **reasoning.chat_fields()}
             return JSONResponse({
                 "id": f"chatcmpl_{uuid.uuid4().hex}",
                 "object": "chat.completion",
@@ -726,7 +729,7 @@ def register_chat_routes(
             "choices": [
                 {
                     "index": 0,
-                    "message": {"role": "assistant", "content": delivered},
+                    "message": {"role": "assistant", "content": delivered, **reasoning.chat_fields()},
                     "finish_reason": "stop",
                 }
             ],
@@ -775,16 +778,27 @@ async def _openai_stream_with_tools(
     both and this generator picks.
     """
     _log = logging.getLogger("copilot_proxy")
+    completion_id = f"chatcmpl_{uuid.uuid4().hex}"
+    created = int(time.time())
+    reasoning = ReasoningCollector()
+    base = {"id": completion_id, "object": "chat.completion.chunk", "created": created, "model": model_alias}
+
+    def reasoning_chunk(event: ReasoningDelta) -> str:
+        payload = {**base, "choices": [{"index": 0, "delta": {"reasoning_content": reasoning.add(event)}, "finish_reason": None}]}
+        return f"data: {json.dumps(payload)}\n\n"
+
+    yield f"data: {json.dumps({**base, 'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'finish_reason': None}]})}\n\n"
     chunks: list[str] = []
     try:
-        async def inline_stream() -> AsyncIterator[str]:
-            async for delta in client.chat_stream(
+        async def inline_stream() -> AsyncIterator[StreamChunk]:
+            async with closing_stream(client.chat_stream(
                 prompt, additional_context, session, images
-            ):
-                yield delta
+            )) as owned_stream:
+                async for delta in owned_stream:
+                    yield delta
 
-        async def router_stream(fallback_turn) -> AsyncIterator[str]:
-            async for delta in routed_or_streamed(
+        async def router_stream(fallback_turn) -> AsyncIterator[StreamChunk]:
+            async with closing_stream(routed_or_streamed(
                 client,
                 router_prompt,
                 prompt,
@@ -794,8 +808,9 @@ async def _openai_stream_with_tools(
                 should_fallback=should_fallback,
                 fallback_turn=fallback_turn,
                 on_router_fallback=on_router_fallback,
-            ):
-                yield delta
+            )) as owned_stream:
+                async for delta in owned_stream:
+                    yield delta
 
         def note_stage(stage: str) -> None:
             nonlocal shortfall_note, declined_note
@@ -818,8 +833,12 @@ async def _openai_stream_with_tools(
             on_studio_fallback=on_studio_fallback,
             skip_router_fallback=skip_router_fallback,
         )
-        async for delta in stream:
-            chunks.append(delta)
+        async with closing_stream(stream) as owned_stream:
+            async for delta in owned_stream:
+                if isinstance(delta, ReasoningDelta):
+                    yield reasoning_chunk(delta)
+                    continue
+                chunks.append(delta)
     except SubstrateCopilotError as exc:
         # Deliver the upstream failure as readable assistant text rather than a
         # bare {"error": ...} frame (strict OpenAI clients render an error-only
@@ -839,23 +858,20 @@ async def _openai_stream_with_tools(
             call_record["error"] = str(exc)
         if on_record_update is not None:
             on_record_update(delivered)
-        err_id = f"chatcmpl_{uuid.uuid4().hex}"
-        err_created = int(time.time())
-        yield f"data: {json.dumps({'id': err_id, 'object': 'chat.completion.chunk', 'created': err_created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'finish_reason': None}]})}\n\n"
         error_chunk = {
-            "id": err_id,
+            "id": completion_id,
             "object": "chat.completion.chunk",
-            "created": err_created,
+            "created": created,
             "model": model_alias,
             "choices": [{"index": 0, "delta": {"content": delivered}, "finish_reason": None}],
         }
-        if isinstance(exc, SubstrateThrottled):
+        if isinstance(exc, (SubstrateThrottled, SubstrateNetworkError)):
             error_chunk["m365_error"] = {
-                "type": "rate_limit_error",
+                "type": "network_error" if isinstance(exc, SubstrateNetworkError) else "rate_limit_error",
                 "message": str(exc),
             }
         yield f"data: {json.dumps(error_chunk)}\n\n"
-        yield f"data: {json.dumps({'id': err_id, 'object': 'chat.completion.chunk', 'created': err_created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}], 'usage': openai_usage(usage_for_record(call_record))})}\n\n"
+        yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}], 'usage': openai_usage(usage_for_record(call_record))})}\n\n"
         yield "data: [DONE]\n\n"
         return
     # Raw text for parsing; the media rewriter runs at delivery time below. This
@@ -895,10 +911,14 @@ async def _openai_stream_with_tools(
                 else additional_context
             )
             retry_session = studio_turn.session if retry_uses_studio else session
-            async for delta in retry_client.chat_stream(
+            async with closing_stream(retry_client.chat_stream(
                 _RETRY_INSTRUCTION, retry_context, retry_session
-            ):
-                retry_chunks.append(delta)
+            )) as owned_stream:
+                async for delta in owned_stream:
+                    if isinstance(delta, ReasoningDelta):
+                        yield reasoning_chunk(delta)
+                        continue
+                    retry_chunks.append(delta)
             retry_text = "".join(retry_chunks)
             retry_calls = _extract_tool_calls(retry_text)
             if not retry_calls:
@@ -933,8 +953,6 @@ async def _openai_stream_with_tools(
             call_record["tool_calls_rejected"] = rejected
     if on_record_update is not None:
         on_record_update(full_text)
-    completion_id = f"chatcmpl_{uuid.uuid4().hex}"
-    created = int(time.time())
 
     if tool_calls:
         remaining = _strip_tool_call_blocks(full_text)
@@ -948,8 +966,6 @@ async def _openai_stream_with_tools(
                     "tool_calls": tool_calls,
                 }
             )
-        # Emit role chunk
-        yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'finish_reason': None}]})}\n\n"
         # Emit remaining text content if any
         if remaining:
             yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'content': remaining}, 'finish_reason': None}]})}\n\n"
@@ -975,7 +991,6 @@ async def _openai_stream_with_tools(
         )
         if on_response_done is not None:
             on_response_done({"role": "assistant", "content": delivered})
-        yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'finish_reason': None}]})}\n\n"
         yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {'content': delivered}, 'finish_reason': None}]})}\n\n"
         yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model_alias, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}], 'usage': openai_usage(usage_for_record(call_record))})}\n\n"
         yield "data: [DONE]\n\n"

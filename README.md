@@ -381,6 +381,39 @@ docker compose up -d
 
 </details>
 
+> **A/D/E 验收状态**：以下变更已部署，但尚未通过完整六路径真实验收。本地回归、网络故障注入或单个 provider 通过，不等于所有 provider/planner 已就绪；各项实测结果、范围及阻塞见[脱敏验收记录](docs/evidence/upstream-07-ade-2026-10-01.json)。
+
+### 推理摘要与流式边界
+
+代理只输出 M365 上游主动提供、带有 `addToChainOfThought` 或 `contentOrigin=ChainOfThoughtSummary` 标记的摘要。它不是完整内部思维链；没有上游摘要时不会伪造。普通进度消息、正文和工具语法仍分别处理。
+
+| API | 非流式摘要 | 流式摘要 |
+| --- | --- | --- |
+| Chat Completions | `message.reasoning_content` | `delta.reasoning_content` |
+| Anthropic Messages | `content` 中的 `thinking` 块 | `thinking_delta`，沿用有序的内容块生命周期 |
+| OpenAI Responses | `output` 中的 `reasoning` 项，内容为 `summary_text` | `response.reasoning_summary_part.*` / `response.reasoning_summary_text.*` |
+
+- 摘要不拼入正文，不参与工具调用解析；工具请求也可以在最终工具调用形成前收到摘要。Router 内部分类回合的摘要不对外输出。
+- 同一摘要的累计快照只追加新后缀；不能撤回已发送前缀的改写不重复播放。多个摘要交错时，Chat/Anthropic 的扁平文本保留段落分隔，Responses 则保留独立项 ID 和输出索引。
+- Anthropic 摘要块的 `signature` 为空：M365 没有提供 Anthropic 签名，代理不会伪造签名，也不承诺与 Anthropic 原生 extended thinking 完全等价。
+- 收到摘要不等于收到有效正文：摘要本身不会让空回答被判为成功，也不会阻止正文开始前的 Studio 回退。关闭 SSE 会沿调用链关闭上游异步流，释放会话锁和账户并发槽。
+
+### 网络错误与 Studio 回退诊断
+
+可明确识别的 DNS、TCP、TLS、读超时、异常断线及 SOCKS5 目标不可达错误，非流式统一返回 **HTTP 503**，错误 `code` 为 `network_error`；Chat/Responses 的 `error.type` 为 `network_error`，Anthropic 使用标准 `api_error` 类型并附加该 `code`。这类故障不附带伪造的配额 `Retry-After`。
+
+流式请求已发送 HTTP 200 后不再改状态码，而按协议结束：
+
+| API | 网络错误通知与终止 |
+| --- | --- |
+| Chat Completions | 可读的正文错误说明，加 `m365_error.type=network_error`；随后发送结束块和 `[DONE]` |
+| Anthropic Messages | `error` 事件，`error.type=api_error`、`error.code=network_error`；不发送成功的 `message_stop` |
+| OpenAI Responses | `error(code=network_error)` 后接 `response.failed`；不发送 `response.completed` |
+
+明确的上游认证/策略拒绝、Consumer 关闭码、不能细分原因的代理协商失败，不会一概标成网络故障；凭据刷新等其他 HTTP 503 也保留原有错误类型。既有限流规则与账户选择不变。
+
+Studio 在尚未收到正文时因上游异常回退，服务端会记 WARNING 和异常堆栈，调用记录的 `studio_fallback` 包含 `upstream_error: 异常类型: 原因`。已收到正文后的异常继续传播，不用回退答案覆盖部分正文。
+
 ### Responses API（方案 A）
 
 `POST /v1/responses` 实现的是当前项目所需的 **Responses API 兼容子集**，不是与 OpenAI 官方接口完全等价：
@@ -396,6 +429,7 @@ docker compose up -d
   单次运行可传 `-c 'web_search="disabled"'`；不要使用 `--search`。Codex 0.145.0 的 `tools.web_search=false` 是旧式工具配置，不保证移除默认的 cached Web Search，不能替代顶层开关。
 - **只读保护边界**：Responses 复用现有的大小写不敏感名称启发式，只把 `Read`、`Grep`、`Glob`、`ls`、`SearchCodebase` 视为只读工具。它无法判断任意自定义函数的真实副作用，因此不是安全边界；实际工具执行器仍须独立实施权限、审批和沙箱限制。
 - **流式生命周期**：成功流从 `response.created`、`response.in_progress` 开始。文本项依次发送 `response.output_item.added` → `response.content_part.added` → `response.output_text.delta` / `done` → `response.content_part.done` → `response.output_item.done`；函数调用项发送 `response.output_item.added` → `response.function_call_arguments.delta` / `done` → `response.output_item.done`，最后以 `response.completed` 结束。上游失败以顶层 `error` 后接 `response.failed` 结束；不发送 `[DONE]`。
+- **推理摘要项**：`response.output_item.added` 后发送 `response.reasoning_summary_part.added`、`response.reasoning_summary_text.delta` / `done`、`response.reasoning_summary_part.done`、`response.output_item.done`。摘要项与正文、函数项共用不重复的 `output_index`，最终 `response.completed.output` 保留相同项 ID 和索引顺序。
 - **M365 续接**：把上一轮返回的 `response.id` 作为下一轮 `previous_response_id`，代理会恢复同一条服务端 M365 会话；下一次 `input` 只需携带本轮新增内容。该续接是线性且单次的，只接受最新 `response.id`，不支持从旧 ID 分叉、成功后重放，或在终止帧丢失后的幂等重试。若上一轮并行返回多个函数调用，必须在一次续接中提交全部对应的 `function_call_output`；工具输出目前只支持文本。
 - **Consumer 续接**：Consumer 是无状态桥接，每轮都会新建上游对话，`previous_response_id` 不会恢复服务端历史。调用方必须在下一次 `input` 中重发完整的 `input` 历史，包括相关消息、`function_call` 和 `function_call_output`。Consumer 返回的 `resp_...` 只是当前响应标识，不是服务端续接句柄。
 - **资源 API 不支持**：方案 A 只注册 `POST /v1/responses`，不提供响应存储、`GET /v1/responses/{response_id}`、`DELETE /v1/responses/{response_id}` 或 `POST /v1/responses/{response_id}/cancel`；`store` 不会创建可供后续读取的响应资源。
@@ -696,9 +730,28 @@ curl -H "x-api-key: YOUR_SECRET_KEY" -H "anthropic-version: 2023-06-01" \
 
 除 M365 企业版外，本项目也支持把 **个人微软账号的 `copilot.microsoft.com`** 接进同一套 `/v1` 接口。不需要 M365 订阅，代价是能力受限（见下方[限制](#限制)）。ChatAI Token 可通过独立 MSA RT 自动续期，浏览器回退及 Cookie 重铸需 `-camoufox` 镜像（见[凭据与 Cookie 自动保活](#4-凭据与-cookie-自动保活camoufox可选)），也可以手动重推。
 
-一个账户要么是 M365，要么是个人版，由账户的 `provider` 字段决定。个人版账户仍属于同一套多租户账户池：每个 API Key 绑定一个账户，多个用户可以分别绑定多个 Consumer 账户；各账户的 Consumer Token、Cookie、出站代理、Camoufox profile 和保活状态彼此隔离。推送个人版凭据会把该账户**切到 `consumer`**，并将它移出 M365 的 AAD RT、Cookie 回放和 Chromium CDP 链路，改由独立的 MSA RT → Camoufox 路径处理。旧共享 admin Chromium 及其 `--no-auto-refresh` 开关不控制账户池保活，因此个人版保活仍会运行。`/admin` 账户表会给这类账户打上标记。
+`provider` 表示当前上游协议，不等同于企业/个人身份：个人 Substrate JWE 使用 `m365`，ChatAI 使用 `consumer`。同一 Microsoft 个人主体可同时保存两套 Token、Cookie 和刷新凭据；保存时可选择「保存并使用」或「仅保存」，也可在用户页显式切换已保存的协议。只自动续期当前协议，不自动跨协议降级。切换不会删除另一套凭据，但会隔离旧请求、刷新结果和会话续接；切回也不会复用切换前的 Responses ID。
+
+管理页的「个人版 · Substrate / ChatAI」标签由 `is_personal` 与实际 `provider` 分别决定。userscript `1.0.81` 将 Substrate Token 与捕获时的 MSAL 主体绑定，推送时检查 localStorage/sessionStorage 是否仍一致；缺失、冲突或登录主体变化时，JWE 必须重新捕获。`display_email` 仅用于展示，不用于账户去重、Key 改绑、刷新授权或 Studio 主体验证；不解读 JWE 加密密钥段。
+
+userscript `1.0.82` 将推送选项改为各自 Substrate / ChatAI 标题右侧的「推送后使用」开关：开启表示保存并使用，关闭表示仅保存。两套开关独立，默认开启，切换语言时保留选择；拨动开关本身不会推送凭据或立即切换账户协议。
+
+**发送消息不保证同时捕获两种协议。** 当页面只建立 Substrate WebSocket 时，ChatAI 区域保持「未捕获此协议」是正常状态；换开关或继续发消息不会把 JWE 转成 ChatAI。服务端「已保存 ChatAI」与当前浏览器「已捕获 ChatAI」也是两件事：旧 profile 中保留的同主体 MSA RT 可以续出服务端 ChatAI 凭据，但无痕窗口不会因此拥有这份浏览器捕获。不要将 M365 RT、JWE 或展示邮箱拼成 ChatAI 凭据。
+
+用户页分别显示两套凭据是否已保存、当前协议及续期方式。ChatAI 的完整 RT/client/scope/主体绑定支持容器重启后的 HTTP 续期；没有 RT 时，浏览器回退仍取决于有效登录态和 Camoufox。个人 Substrate JWE 不因此获得 RT 冷启动能力，界面显示「手动重新推送」时仍需重新捕获。非活动 Substrate JWT 的匹配 RT 可以单独保存；显式激活时可初始化其保存的 Cookie 会话。
+
+本轮部署验收记录见 [双协议证据](docs/evidence/dual-protocol-2026-10-01.json)：2646 项回归通过；ChatAI 重启后刷新、原生 M365/个人 Substrate 流式输出、Router 和 Messages/Responses 工具闭环已观察。Studio 实际回退 Router，不能算通过；ChatAI smart 模式的 Messages/Responses 续轮仍受真实 429 阻塞。完整矩阵未通过。部署采用容器源码覆盖，重建容器会丢失覆盖，未发布新镜像。
 
 同一个已绑定账户切换到另一个 Microsoft 个人主体前，需要先在用户页「登出 Microsoft」或解绑；不同账户不会共用 Consumer profile。隔离单位是账户，不是 Key：如果管理员故意把多个 Key 绑定到同一个账户，这些 Key 会共享该账户的凭据、代理、profile 和保活状态；要做到一人一号，应给每人创建并绑定独立账户。这里的“移出 M365 刷新链路”只表示 provider 刷新实现不同，不表示个人版失去多租户隔离或账户级保活。
+
+### 最近请求受限，不等于整个账户不可用
+
+Consumer 上游 `chatMessageError: throttled` 的 `nextAvailableAt` 是该次请求的重试提示。代理保留真实 HTTP 429 / `Retry-After`，但不据此阻止后续请求，也不把它解释为网页、其他模式或 Personal Substrate 全部不可用。
+
+管理页和用户页显示「最近请求受限 · mode」，悬停可见记录时间与上游重试提示。API 的 `throttled_until`、`throttled_mode`、`throttled_at` 保存最后一次观察；旧记录没有模式时显示「模式未记录」。同模式后续完整、非空成功会清除旧观察；其他模式成功、空回复、失败或提前断流不会清除。已在执行的旧请求不能清除开始后才出现的新限流记录。切换 provider 或 Microsoft 个人主体会丢弃旧观察，原身份的迟到结果也不会写回新身份；单纯刷新同一身份的凭据不代表额度恢复。
+
+排查网页可聊、代理不可聊时，先核对 Key 绑定账户、实际协议和 mode；不要删除限额记录或反复刷新凭据来掩盖上游拒绝。
+
 
 ### 1. 配置出站代理（仅在服务器直连不到 Copilot 时）
 
@@ -711,13 +764,11 @@ curl -H "x-api-key: YOUR_SECRET_KEY" -H "anthropic-version: 2023-06-01" \
 
 1. 安装同一个[油猴脚本](#方式二油猴脚本一键推送m365-与个人版都可用)（`@match` 已覆盖 `copilot.microsoft.com`，无需另装）
 2. 在 `/` 用户自助页拿到自己的 **API Key**，填进油猴面板的「用户 API Key」框；「代理地址」填**本代理服务**的地址（如 `http://localhost:8000`）
-3. 打开 [copilot.microsoft.com](https://copilot.microsoft.com) 并登录个人微软账号
-4. **发送一条消息** —— ChatAI token 只出现在聊天 WebSocket 的 URL 里，不发消息就抓不到
-5. 面板「个人版 Copilot」一栏变绿显示 `✓ ChatAI Token 可用` 后，点 **一键推送个人版**
+3. 打开 [copilot.com](https://copilot.com)（或原 `copilot.microsoft.com` 入口）并登录目标个人微软账号。
+4. **发送一条消息**，让脚本从真实聊天 WebSocket 捕获凭据；仅有 Cookie 或 OfficeHome 的 MSAL 缓存不等于已取得聊天 Token。
+5. 两个协议入口始终显示，仅真实捕获到的协议可推送。Substrate 用「推送 Token」或「一键推送」，ChatAI 用「推送 ChatAI」。选择「仅保存」不会切换当前协议；需要使用另一套时，在用户页点对应协议的「切换使用」。
 
-> 脚本按域名自动切换面板内容：在 copilot.microsoft.com 上只显示「个人版 Copilot」，企业版那套（`Token` / `Media Bearer` / 模式抓包）收进底部的「其他产品」折叠抽屉里 —— 它们是企业版专用的，个人版账户不需要。反过来在 m365.cloud.microsoft 上，个人版一栏同样收进抽屉。登录域（`login.live.com` 等）两栏都显示，因为登录中途无法判断你要用哪个产品。
->
-> 抽屉只是折叠、没有移除，因为 M365 的 **Cookie 推送**查的是绝对域名，在任何标签页都能用；其余按钮仍需在各自的站点上才能抓到凭据。
+> 只建立 Substrate 会话的网页不能凭空生成 ChatAI 凭据。推送后核对主体、两套凭据状态和当前协议，再通过 `/v1` 实际对话验证；「已保存」不代表上游权限或配额可用。
 
 ### 3. 凭据过期后手动重推
 
@@ -777,7 +828,7 @@ Consumer refresh for <account-id>: re-minted <N> cookies
 | 图片输入 | ✅ | 图片经 `POST /c/api/attachments` 上传（需聊天 Token，仅 Cookie 会 403），返回的相对 URL 排在文字之前发给上游，与网页版同形；纯图片消息也能识图。`png`/`jpeg`/`webp` 直接接受，`gif`/`bmp` 改标为 `image/png` 后再试（尽力而为），单轮上限 10 张，上传失败只丢该图并记 WARNING |
 | 图片生成 | ✅ | 让它画图会返回 Markdown 图片链接。个人版不需要企业版那套「媒体授权」——链接是匿名可取的（实测无 Cookie、无 token 直接 200） |
 | 持续会话 | ⚠️ | 每轮开新对话，完整历史每轮重发，因此上下文不丢；但上游侧不存在长期会话 |
-| Token / Cookie 自动保活 | ⚠️ | RT / CDP 两条 M365 链路都不适用。`-camoufox` 镜像用持久 Microsoft 登录 profile 静默重铸新 Token 与 Cookie（见[凭据与 Cookie 自动保活](#4-凭据与-cookie-自动保活camoufox可选)）；默认镜像只能手动重推 |
+| Token / Cookie 自动保活 | 有条件 | ChatAI 完整 MSA RT 绑定支持 HTTP 续期；浏览器回退需要有效登录态与 Camoufox。个人 Substrate JWE 的手动重推与 ChatAI 续期是两条独立链路 |
 
 ### 个人版 Substrate JWE 专线
 

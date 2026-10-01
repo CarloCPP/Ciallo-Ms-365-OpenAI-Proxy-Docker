@@ -1089,6 +1089,86 @@ VERDICT=OTHER_CONSUMER_ERROR
 2. 可继续参考 `MasayukiTa` 的抓包证据纪律、`kdeps` 的 reasoning channel 分离、`artlovan` 的 Cowork SSE/审批协议，但不复制与当前架构无关的代码。
 3. 任何 Copilot2API 同族仓仍不得引入：当前 API 元数据均无许可证，且至少两个新仓明确是该族派生分支。
 
+## 2026-09-27 复扫：无新的可直接采纳实现，两条可采纳新模式 + 一处对旧判决的更正
+
+延续 08-30 起的问法（找**许可证允许拿进来**的代码补已知缺口，本项目 Apache-2.0 → MIT/Apache/BSD/ISC 可采纳，AGPL/NOASSERTION 只读）。窗口 2026-09-18..09-27。三条腿并行：name+desc 日期窗口搜索、协议字面量代码搜索、已知仓自 09-18 以来的提交增量。**所有下面出现的 commit SHA、日期、许可证、`pushed_at` 都由我自己用 `gh` 直接复核过**，不是只引子代理的转述。
+
+### 方法上的一个坑（本轮再次踩到）
+
+`gh search code` / `/search/code` 这条腿这次基本废了：未认证 REST 返回 401，认证态又撞 GitHub 的 secondary-rate-limit 403。协议字面量那一腿因此改走 `raw.githubusercontent` + 本地已克隆树（`.tmp-github-scan/rescan-0914`）+ 已知仓直查。许可证/派生这道硬门需要的是源文件本身，`raw.githubusercontent` 够用；受影响的只是「靠全局代码索引发现未知仓」的能力，而那一腿本轮没产出新的高信号仓。
+
+### 判决表（本轮新出现或有 in-window 活动的仓）
+
+| 仓 | 许可证 | 派生核查 | 结论 |
+|---|---|---|---|
+| [`sPROFFEs/m365proxy`](https://github.com/sPROFFEs/m365proxy) | MIT，0★，JS，创建 09-14、推送 09-21 | LICENSE 署名「M365 Copilot Local contributors」，`THIRD_PARTY_NOTICES.md` 明确派生自 `cramt/m365-copilot-proxy`（MIT，Alexandra Østermark），installer 把上游 vendor 进 `vendor/cramt`、adapter 只消费其公开 API；`HEXUXIU`/`Copilot2API`/`addToChainOfThought` 全树 0 命中 → 干净 | **可采纳，但无可搬的缺口补丁**：见下 |
+| [`site-speed/M365-Copilot-Chat-Export-userscript`](https://github.com/site-speed/M365-Copilot-Chat-Export-userscript) | MIT，8★，JS，Tim Moss | 源 0 处 `HEXUXIU`/`addToChainOfThought`，自带 `ChainOfThoughtSummary` 检测逻辑 → 独立 | **可采纳，且更正了 09-11 的一条判决**：见下 |
+| `site-speed/M365-Copilot-Chat-Export-extension` | MIT，5★ | 同上作者、同版本（v1.0.42）的 MV3 打包 | 与 userscript **同一实现**，不重复计数 |
+| [`dayour/atlassian_cowork`](https://github.com/dayour/atlassian_cowork) | MIT，0★，JS，创建 09-15 | README 自陈「independent interoperability reproduction」，无 HEXUXIU 系信号 → 独立 | **可采纳（只取协议事实）**：Cowork 的 Atlassian Rovo MCP 连接器 + `REPRO_RESULTS.md` 记的 Cowork runtime OAuth/DCR 行为（title-service 200 回 Atlassian 授权 URL、动态 client id + Teams redirect + PKCE S256、`OAuthPluginVault.referenceId` 绑 Enterprise Token Store）。喂待办 10/Cowork，但 Cowork 09-15 已在我们这边卡在 `available_models` 空数组，所以是情报不是候选 |
+| [`ruoshui6662/M365-Copilot2API-docker`](https://github.com/ruoshui6662/M365-Copilot2API-docker) | NOASSERTION，Go，创建 09-18 | HEXUXIU 系的 docker 封装 | **REJECT**，同族只读 |
+| [`my788525/M365-Copilot2API-FNOS`](https://github.com/my788525/M365-Copilot2API-FNOS) | NOASSERTION，Go，4★ | 描述逐字自陈「enhanced fork of HEXUXIU/M365-Copilot2API」 | **REJECT**，同族只读（09-18 已列，且本窗口无新提交，最后活动 09-16） |
+| `sozercan/vekil`（MIT）/ `sh0rch/m365proxy`（MIT）/ `microsoft/CoworkDashboard`（MIT） | — | — | **REJECT，越界**：分别是 GitHub Copilot/Codex/Foundry 网关、M365 邮箱 SMTP/POP3 代理（仅仓名撞车，非 Copilot）、Cowork 采纳率报表工具。均与本项目上游/目标不同 |
+
+### 唯一新的可采纳代理 `sPROFFEs/m365proxy`：cramt 的派生，无新协议事实
+
+它是 `cramt/m365-copilot-proxy`（已跟踪，MIT）的下游 adapter：通过 installer 把 cramt 整树 vendor 进来，自己加了「命名 profile」和「每请求确定性 `route_plan`」两层。工具调用仍是 cramt 那套提示词模拟 + agent 脚本契约。所以它对我们的价值等于 cramt 本身——一个新的干净 MIT 代码库，但**没有带来任何新的 substrate 协议字段**，也没有可直接落进我们缺口的代码。记为可采纳、IDEAS-ONLY。
+
+### 更正 09-11 对 site-speed 的判决：它不是「DOM/JSON 不走协议」
+
+09-11「顺带否决」里把 `site-speed/M365-Copilot-Chat-Export-*` 记成「从网页 UI 导出对话，走 DOM/JSON 不走协议」。**读源码后这条不成立**：`exp.js` 里 `window.fetch` / `XMLHttpRequest.prototype.{open,send}` 都被 hook（`4106-4142`），并且它主动打一个我们**从未建模**的 substrate 读端点（本地全 `src/` 对 `GetConversation` **0 命中**）：
+
+```
+GET https://substrate.office.com/m365Copilot/GetConversation
+    ?request=<urlenc JSON {conversationId, source:"officeweb", traceId:<hex32>}>
+  authorization: Bearer <aud = https://substrate.office.com/sydney>
+  x-anchormailbox: Oid:<oid>@<tid>
+  x-client-application: M365CopilotChat
+  x-clientrequestid: <hex32>
+  x-routingparameter-sessionkey: <oid>
+  x-scenario: OfficeWeb
+```
+
+回包 `messages[]` 带 `throttling` / `chatName` / `turnCount` / `citations` / `contentOrigin` / `messageType`——即它是我们那条 WS 发送面之外的**历史/读取面**。这是本轮唯一新到的 substrate 协议事实（喂待办/缺口「新协议字段」）。它也是 `messageType:"Progress"` + `contentOrigin:"ChainOfThoughtSummary"` 检测形状在 `kdeps`、`chrischall` 之后的**第三个独立来源**，进一步坐实 09-01 那条判据；但它的渲染目标是 Markdown 文件，不是 `reasoning_content`/`thinking`，所以对待办 7 只是印证不是可搬实现。
+
+**同时更正子代理的一处反向错误：** 子代理说我们「没记过 `XRoutingParameterSessionKey` 用法」。这条也不对——`personalization.py:121` 早就在发 `x-routingparameter-sessionkey`（值为 `oid`），`x-anchormailbox`（`substrate_upload.py:183`、`personalization.py:119`）和 `sydney` audience（`pkce_login.py:41`、`refresh_via_rt.py:55`）也都已是我们的。所以 site-speed 真正新到我们这里的**只有 `GetConversation` 这个端点本身**，那三个 header 和 audience 不是新的。
+
+### 已知仓增量（SHA 均已复核）
+
+- **`MasayukiTa/m365-copilot-companion-mcp`（MIT）：`d38cc743`（2026-09-26）「stop ping-only socket waits」是一条可采纳的新模式。** 新增 `socket_driver.generation_idle_s()` / `fail_stalled_turn()` + `SOCKET_MEANINGFUL_IDLE_S=90`：`on_text`/`on_progress` 刷新一个「有意义活动」时钟，**WebSocket ping 帧从不刷新它**（源码原话 `# Socket pings do not count`），于是一个还在「喘气」但答案不增长、也无 progress 帧的 socket 会被判为 stalled 并落进既有的重连/兜底路径。**直接喂待办 2**（统一 write deadline / 客户端断连释放）：它把「传输层活着」和「agent 有进展」分成两件事，正是我们缺的那半；也第二来源印证了「ping 是保活不是进展」这条原则（与待办 13 的个人版 ping/pong 同源，但那一面仍要先做我们自己的入站帧埋点，不因这条外部证据就改代码）。
+- **`kdeps/kdeps`（Apache-2.0）本窗口有多条 m365 提交（SHA 已核）：** `251caaa4`（09-24）anchor first handshake history pair for m365 session continuity——按**首条消息指纹**决定续接还是新开会话，这正是我们 `history_index.py` 已经在做的事（精确摘要索引路由 continue-vs-new），属独立第二来源印证；`079a539b`（09-22）send an explicit output cap on cloud and m365——未设 `max_tokens` 时 M365 代理会套一个更小的默认并截断，是一条新 substrate 行为事实；`8dc2804`（09-22）update sent and generated while streaming——prompt 在调用开始即计入 sent，每个 reasoning/answer chunk 计入 generated，provider usage 在 finish 时替换估算，是待办 4「usage 升级」的一个具体 Apache-2.0 可采纳模式。**但注意：** 我们自己的记录已多次印证上游**根本没有权威 token 计数**（kdeps 报 0、Cowork 自陈无计数），所以这条模式只能升级估算的标注（`token_source`），不能把估算变成精确值。
+- **`HEXUXIU/M365-Copilot2API`（NOASSERTION）：`875dfc73`（2026-09-27）「stream reasoning_content from the live path (issue #83)」——恰好是我们待办 7 未实现的那件事**（live streaming 分支此前忽略 reasoning 事件，现在处理 `ev.Kind==reasoning` 并在 finish 前 flush）；另有 first-token timeout（`M365_FIRST_TOKEN_TIMEOUT_SECONDS` 默认 75s）、`WS_READ_TIMEOUT` failover、503-vs-429、跨 SSE 分片的残缺 UTF-8 rune 兜底。**高价值可研究，但它是 AGPL 系源头，一行都不能抄。** 意义是再次证明待办 7 是别人都在修的活痛点。
+- **`cramt/m365-copilot-proxy`（MIT）：** PR#20 加 `Gpt_6_Reasoning`（ships as `gpt-6-think-deeper`），并把 entitlement 与计量拆开——reasoning 模型按 `OfficeWebPaidCopilot` vs 默认 `OfficeWebIncludedCopilot` 场景门控；PR#22 加 `Gpt_5_6_Chat`；「unlock Claude_Opus via the paid scenario」；bench 说明非流式代理会**扣住 socket 直到整段完成才发 header**、以及约 10 个新会话后触发线程级节流。属 substrate 情报（entitlement 场景门控 tone），IDEAS-ONLY，无 drop-in。
+- **`microsoft/Agents-M365Copilot`（MIT）：** `main` 自 09-18 起提交为**空**（已用 `sha=main` 复核，非空页缓存假象）；09-24 的 `pushed_at` 是各语言 beta/v1 codegen 分支的自动构建，未合并 main。待办 3（官方 Graph chatOverStream Provider）状态不变，仍是 preview。
+- **`protella/chatgpt-bots`、`chrischall/opencode-copilot-plugin`、`KilimcininKorOglu/M365Bridge`：** 本窗口仅 dependabot/版本号提交（前者是 OpenAI Responses 侧的 Slack bot，与我们无关；chrischall 只是 msal-node 6.0.0→6.0.1 等；M365Bridge 只是 `1.5.1` bump 且仍无 LICENSE）。NO-CHANGE。
+
+### 本轮结论
+
+1. **不换仓、无 drop-in 缺口补丁。** 唯一新可采纳代理 `sPROFFEs/m365proxy` 是 cramt 的派生，无新协议事实。
+2. **两条可采纳的新模式值得记着：** `MasayukiTa` `d38cc743` 的 ping-aware idle deadline（待办 2）、`site-speed` 的 `GetConversation` 读端点（新 substrate 协议事实）。`kdeps` 仍是待办 7 reasoning 渲染的最干净参考实现，本窗口又新增流式 sent/generated 计数（待办 4 的可采纳模式）。
+3. **HEXUXIU 系边界不变**，且本窗口新增两个该族仓（`ruoshui6662` docker 封装、`my788525` 自陈 fork）——都 REJECT，代码一行不进。
+4. 本轮是纯文档追加，**未改任何运行时代码**，因此 `AGENTS.md` 的活体验收矩阵不适用（没有行为变更需要验证）；上面所有外部事实为 GitHub 复核，未触碰部署容器。
+
+### 2026-09-27 独立复核（第二遍）：上面每条 SHA/许可证自查通过，新增一条 badafans 匿名引导面
+
+上面的 09-27 段落由前一遍写就；本遍是**独立第二次复核**，不靠转述，`gh` 与 `raw.githubusercontent` 双通道各自复跑，并按本文件既定问法（许可证允许才能拿进来）核对四条腿的产出。
+
+**自查通过（我自己复跑，不是引子代理转述）：**
+
+- `HEXUXIU/M365-Copilot2API` `875dfc73`（2026-09-27T03:37:14Z，reasoning_content live path #83）—— SHA、时间、提交信息逐字一致；仓库 tip 现已推进到 `a182c0f2`（2026-09-27T04:15:06Z「chore(mcp): remove unused MCP client」），是 MCP 清理，无新缺口。族边界不变，仍 REJECT。
+- `MasayukiTa/m365-copilot-companion-mcp` `d38cc743`（2026-09-26T10:13:52Z，stop ping-only socket waits）—— 一致；tip 已推进到 `051661f4`（2026-09-26T22:26:13Z）与 `73bf3875`，均为 Windows launcher / CI hygiene，无 gap 机制，NO-CHANGE。
+- `cramt/m365-copilot-proxy` PR#20（`Gpt_6_Reasoning` + entitlement/metering 拆分）、PR#22（`Gpt_5_6_Chat`）—— 两个都 `merged=true`，与上面 substrate 情报条一致。
+- `kdeps/kdeps` 上面简写的 `8dc2804` 全 SHA 实为 `8dc28047`（Apache-2.0），流式 sent/generated 计数模式一致；本遍只更精确，不改结论。
+
+**新增的一条事实（上面 09-27 段落没有）：`badafans/copilot2api` 另有一条匿名引导面。** 上面只把 badafans 记为「`pong` 列在已知可忽略事件里」这一点印证。读源码（`internal/copilot/client.go`，raw CDN 复核，因为 `api.github.com` 本轮间歇性连接重置）发现它另有一条我们从未建模的**匿名**路径：
+
+- `POST https://copilot.microsoft.com/c/api/start`（端点串 L21），body `{timeZone, startNewConversation:true, teenSupportEnabled:true, correctPersonalizationSetting:true, deferredDataUseCapable:true}`（L125），返回 `{isBlocked, currentConversationId}` + `Set-Cookie: __Host-copilot-anon`（L152-153，后续请求必带）。
+- 匿名路径用 **Android 原生 UA** `CopilotNative/30.0.440527002-prod (Android 9; Xiaomi; Redmi Note 7)`（L419）+ `Accept-Language: zh-CN`，**不需要 cf_clearance / Turnstile**——即它整条绕开了待办 14 那个 `method:null`/`cloudflare` 挑战。
+- 另有 `DELETE /c/api/conversations/history`（L349-351）做服务端会话清理，须在丢弃本地 cookie 前调用，否则会新铸一个匿名会话。
+
+价值与边界：这是**协议情报，不是候选**。badafans 是 MIT、Go、**匿名 only**，与我们「登录态多账号」的形状不同，无 drop-in；而且匿名面拿不到用户自己的 Copilot 上下文（是无身份的公共 Copilot）。真正值得记的是那条 **Turnstile 规避假设**：如果个人版哪天被 `method:null` 挑战卡死（待办 14），Android-native UA 的匿名引导是一条已被第三方实现验证过的规避路线——但它换来的是丢掉登录身份，所以只在「宁可匿名也要出话」的降级场景才有意义，且仍需我们自己抓包证实这条 UA 今天还有效，不能凭它的源码就改代码。
+
+**方法说明（连通性）：** 本遍 `api.github.com` / `github.com` 间歇性 `000`（瞬时连接重置，非 DNS：`20.205.243.168` 可解析），`raw.githubusercontent.com`（301）/ `objects.githubusercontent.com` 正常。SHA 类复核在 API 健康窗口内由 `gh` 跑完，源码字面量复核走 raw CDN——正是本文件 09-27 段落「方法上的一个坑」里记的那条回退路径。结论不受影响：**仍是不换仓、无 drop-in**，本遍同样未改任何运行时代码，`AGENTS.md` 活体验收矩阵不适用（无行为变更）。
+
  ## 后续顺序
 
 1. Copilot Studio 账号级显式实验模式已实现，正式 A/B + 一次复测完成，三协议全链路实测通过；Router 继续默认，不自动推广 Studio。
@@ -1122,3 +1202,15 @@ VERDICT=OTHER_CONSUMER_ERROR
 - **一条对旧结论的补充（不是推翻）：** `gpt-5.6-sol` / `gpt-5.6-terra` 在 2026-08-28 按 substrate **tone** 探测时 12 种拼法全部「empty response twice」（`tone_options.py:14-22`），当时记为「本租户不存在」。现在知道它们是 **Cowork 的 model id**（`/v1/models` 直接列出），不是 substrate tone —— 所以那条记录是对的（作为 tone 确实不存在），但「这些名字在别人租户能用」的传闻也有了解释：说的是另一个上游面。不要因此把它们加回 `TONE_OPTIONS`。
 - 个人版这一面本轮才第一次按同样标准扫（此前六轮都只扫工作/学校版）。两个 MIT 独立实现（`atomic-reactor/msco-pi-lot`、`badafans/copilot2api`）逐帧印证了我们的 `consumer_client.py`，没有一条可搬代码；但它们暴露出两处差异：我们不回 `ping`/`pong`（因果未建立，见待办 13），以及 `method:null` 挑战的机制解释（见待办 14）。`sums001/Windows-Copilot-API` 的 1237★ 说明这一面的关注度远高于工作版，值得每轮都扫。
 - `protella/chatgpt-bots`（MIT）的工具循环不变量可直接用于待办 5，含一条它自己的更正（强制单轮时要关掉 empty-final 兜底）。**其中「上限必须在 dispatch 之前生效」这条我们至今没接线**，见待办 11。
+
+## 2026-10-01：0.7.x 可用思路的独立实现与部署状态
+
+- A：独立的上游推理摘要通道已接入 Chat `reasoning_content`、Anthropic `thinking`、Responses reasoning summary；本次目标容器三协议流式分别观察到 250 / 259 / 240 个摘要字符，均正常结束。该通道是上游提供的摘要，不是对模型隐含思维的推断。
+- D：网络传输故障与额度拒绝分开，明确网络故障映射为 503 / `network_error`；原部署故障注入证据保留在验收记录中。
+- E：Studio 降级原因已记录。当前新 M365 身份经 RT 成功续期，GetGptList 返回 200，但没有所需 agent 的精确 MOS3 匹配；实际 Studio 请求回退 Router，不算 Studio 验收通过。
+- `multi` 已合入 `fox`（`92453eb`），原 A/D/E 未提交改动恢复后，全套回归为 2577 passed、3 skipped。已更新指定容器源码；未构建或发布镜像，容器重建会失去此次源码覆盖。
+- 用户指定个人身份在 `copilot.com` 的登录态可恢复；从真实 WebSocket 捕获五段 JWE，再执行原 userscript 推送到原绑定账户（验收环境用 GM 传输桥接），Personal Substrate 原生请求已返回预期标记。该身份与此前受限的 Consumer ChatAI 身份不同，不能互相替代验收。
+- 限额记录已改为「最近请求受限 · mode」，保留真实 429、重试时间和观察时间，不宣称整个账户或网页不可用；同模式完整成功、并发旧结果和主体切换的生命周期由回归覆盖。中英文管理页及用户页已在目标部署浏览器中检查。
+- 尚不能宣称完整验收：Studio 缺少所需现有 agent；另一个 Consumer ChatAI 账户仍有真实上游限流；个人 Responses 工具续轮首次丢失预期标记，带正文诊断的后一次完整复测通过，历史失败保留、不改写。
+
+完整分项、断流与后续请求结果见 [`docs/evidence/upstream-07-ade-2026-10-01.json`](evidence/upstream-07-ade-2026-10-01.json)。

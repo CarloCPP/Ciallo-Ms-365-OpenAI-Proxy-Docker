@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from m365_copilot_openai_proxy.models import OpenAIResponsesRequest
 from m365_copilot_openai_proxy.session_helpers import (
     _decode_responses_session_id,
@@ -81,3 +83,24 @@ def test_previous_response_session_from_old_account_is_rejected_after_key_rebind
     assert not _responses_store_key_belongs_to_request(
         rebound_request, decoded
     )
+
+
+@pytest.mark.parametrize("provider,epoch,store_key,allowed", [
+    ("m365", 0, "key_a:account_a:auto:legacy", True),
+    ("m365", 2, "key_a:account_a:auto:legacy", False),
+    ("m365", 0, "key_a:account_a:protocol:m365:2:auto:current", False),
+    ("m365", 2, "key_a:account_a:protocol:m365:2:auto:current", True),
+    ("m365", 2, "key_a:account_a:protocol:m365:20:auto:other", False),
+    ("consumer", 2, "key_a:account_a:protocol:m365:2:auto:other", False),
+])
+def test_signed_response_ids_are_owned_by_exact_protocol_epoch(
+    provider, epoch, store_key, allowed,
+):
+    request = SimpleNamespace(state=SimpleNamespace(
+        api_key_obj=SimpleNamespace(id="key_a"),
+        account=SimpleNamespace(id="account_a", provider=provider, protocol_epoch=epoch),
+    ))
+    response_id = _encode_responses_session_id(store_key, "signing-secret")
+    decoded = _decode_responses_session_id(response_id, "signing-secret")
+
+    assert _responses_store_key_belongs_to_request(request, decoded) is allowed

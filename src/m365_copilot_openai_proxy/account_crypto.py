@@ -63,6 +63,8 @@ SENSITIVE_FIELDS = (
     # in plaintext in accounts.json or a backup of it.
     "consumer_refresh_token",
     "consumer_account_id",
+    "substrate_account_id",
+    "consumer_cookies",
     # An outbound proxy URL may embed credentials (http://user:pass@host:port),
     # which normalize_proxy_url explicitly accepts -- so it is at-rest sensitive.
     "proxy_url",

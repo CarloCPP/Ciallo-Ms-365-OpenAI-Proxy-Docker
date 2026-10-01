@@ -12,8 +12,11 @@ from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import websockets
+from python_socks import ProxyError as SocksProxyError
 
+from .reasoning import ReasoningDelta, ReasoningSnapshots, StreamChunk
 from .session_store import PersistentSession
+from .sse_stream import closing_stream
 from .substrate_parse import (
     _capture_suspicious_response_event,
     _combine_text,
@@ -261,6 +264,32 @@ class SubstrateThrottled(SubstrateCopilotError):
     upstream_result = "Throttled"
 
 
+class SubstrateNetworkError(SubstrateCopilotError):
+    """DNS, connection, TLS or stalled I/O prevented a complete upstream turn."""
+
+
+# A stalled read and a refused socket both surface here as ordinary exceptions,
+# and `socket.gaierror` / `ssl.SSLError` are both OSError subclasses, so DNS, TCP
+# and TLS are covered by the one check. The cause chain is followed because the
+# websockets client wraps a handshake that died mid-connection; it is walked with
+# a bound rather than `while` so a self-referencing chain cannot spin.
+_NETWORK_FAILURE_TYPES = (OSError, asyncio.TimeoutError, EOFError)
+_NETWORK_CAUSE_DEPTH = 5
+
+
+def _is_network_failure(exc: BaseException | None) -> bool:
+    for _ in range(_NETWORK_CAUSE_DEPTH):
+        if exc is None:
+            return False
+        if isinstance(exc, _NETWORK_FAILURE_TYPES):
+            return True
+        # SOCKS5 reachability replies, not authentication or policy refusals.
+        if isinstance(exc, SocksProxyError) and exc.error_code in (3, 4, 5, 6):
+            return True
+        exc = exc.__cause__
+    return False
+
+
 class SubstrateCopilotClient:
     def __init__(self, access_token: str, time_zone: str = "Asia/Shanghai", tone: str = "Magic", extra_tool_prompt: str = "", idle_timeout: float | None = None, studio_agent_id: str = ""):
         if not access_token:
@@ -276,6 +305,7 @@ class SubstrateCopilotClient:
         self._extra_tool_prompt = extra_tool_prompt or ""
         self._studio_agent_id = str(studio_agent_id or "")
         self._response_debug_sink = None
+        self._reasoning_sink = None
         # Set by the dependency layer so each turn's server-reported conversation
         # quota reaches the app-wide store. That quota is the ONLY non-estimated
         # usage number this protocol offers -- token counts do not exist here at
@@ -508,18 +538,19 @@ class SubstrateCopilotClient:
         additional_context: list[str],
         session: PersistentSession | None = None,
         images: list | None = None,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[StreamChunk]:
         text = _combine_text(prompt, additional_context, self._tone)
         annotations = await self._upload_images(images)
         if session is None:
-            async for chunk in self._stream_turn_with_retry(
+            async with closing_stream(self._stream_turn_with_retry(
                 text=text,
                 conv_id=str(uuid.uuid4()),
                 session_id=str(uuid.uuid4()),
                 is_start_of_session=True,
                 annotations=annotations,
-            ):
-                yield chunk
+            )) as owned_stream:
+                async for chunk in owned_stream:
+                    yield chunk
             return
 
         # Acquire the per-session lock with a timeout so a stuck stream on the SAME
@@ -536,15 +567,17 @@ class SubstrateCopilotClient:
             turn = session.reserve_turn()
             streamed_any = False
             try:
-                async for chunk in self._stream_turn_with_retry(
+                async with closing_stream(self._stream_turn_with_retry(
                     text=text,
                     conv_id=turn.conversation_id,
                     session_id=turn.client_session_id,
                     is_start_of_session=turn.is_start_of_session,
                     annotations=annotations,
-                ):
-                    streamed_any = True
-                    yield chunk
+                )) as owned_stream:
+                    async for chunk in owned_stream:
+                        if isinstance(chunk, str) and chunk:
+                            streamed_any = True
+                        yield chunk
             except SubstrateCopilotError as exc:
                 # A reused persistent conversation can rot: after some turns the
                 # upstream starts refusing every CONTINUATION (turnState=Failed /
@@ -574,14 +607,15 @@ class SubstrateCopilotClient:
                     raise
                 session.reset_conversation()
                 healed = session.reserve_turn()
-                async for chunk in self._stream_turn_with_retry(
+                async with closing_stream(self._stream_turn_with_retry(
                     text=text,
                     conv_id=healed.conversation_id,
                     session_id=healed.client_session_id,
                     is_start_of_session=healed.is_start_of_session,
                     annotations=annotations,
-                ):
-                    yield chunk
+                )) as owned_stream:
+                    async for chunk in owned_stream:
+                        yield chunk
         finally:
             session.lock.release()
 
@@ -592,17 +626,16 @@ class SubstrateCopilotClient:
         session_id: str,
         is_start_of_session: bool,
         annotations: list[dict] | None = None,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[StreamChunk]:
         """Stream one turn; if the upstream returns a clean-but-empty response
         (connected, invoked, ended with no text/image), retry ONCE, then fail.
 
         The retry always runs on a brand-new throwaway conversation (fresh
         conv_id/session_id, is_start_of_session=True) so a persistent session's
         user message is never posted twice -- at worst the retry loses prior
-        context, which is preferable to a duplicated turn. A retry only happens
-        when the first attempt yielded nothing at all; any real error raises
-        SubstrateCopilotError and propagates without retrying. All yields from
-        _chat_stream_for_turn are non-empty, so tracking yielded_any is exact.
+        context, which is preferable to a duplicated turn. A summary is not an
+        answer: only text/image chunks count toward a successful turn or prevent
+        an empty-turn retry.
 
         Two empty attempts raise rather than returning "": an empty answer reads
         as a working-but-mute model in every client. Measured cause (2026-08-02):
@@ -612,34 +645,46 @@ class SubstrateCopilotClient:
         _chat_stream_for_turn to catch.
         """
         yielded_any = False
-        async for chunk in self._chat_stream_for_turn(
+        async with closing_stream(self._chat_stream_for_turn(
             text=text,
             conv_id=conv_id,
             session_id=session_id,
             is_start_of_session=is_start_of_session,
             annotations=annotations,
-        ):
-            yielded_any = True
-            yield chunk
+        )) as owned_stream:
+            async for chunk in owned_stream:
+                if isinstance(chunk, str) and chunk:
+                    yielded_any = True
+                yield chunk
         if yielded_any:
             return
         # Empty upstream response: retry once on a fresh throwaway conversation.
         retried_any = False
-        async for chunk in self._chat_stream_for_turn(
+        async with closing_stream(self._chat_stream_for_turn(
             text=text,
             conv_id=str(uuid.uuid4()),
             session_id=str(uuid.uuid4()),
             is_start_of_session=True,
             annotations=annotations,
-        ):
-            retried_any = True
-            yield chunk
+        )) as owned_stream:
+            async for chunk in owned_stream:
+                if isinstance(chunk, str) and chunk:
+                    retried_any = True
+                yield chunk
         if not retried_any:
             raise SubstrateCopilotError(
                 f"M365 Copilot returned an {_EMPTY_TURN_MARKER} (conversation mode "
                 f"'{self._tone}'). A mode M365 does not recognise always does this: "
                 f"check the mode list against a scan_tones.py run."
             )
+
+    def _note_reasoning(self, event: ReasoningDelta) -> None:
+        sink = getattr(self, "_reasoning_sink", None)
+        if sink is not None:
+            try:
+                sink(event)
+            except Exception:
+                _log.warning("reasoning collector failed", exc_info=True)
 
     async def _chat_stream_for_turn(
         self,
@@ -648,7 +693,7 @@ class SubstrateCopilotClient:
         session_id: str,
         is_start_of_session: bool,
         annotations: list[dict] | None = None,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[StreamChunk]:
         req_id = str(uuid.uuid4())
         url = self._ws_url(conv_id, session_id, req_id)
         origin = "https://copilot.com" if getattr(self, "_is_consumer", False) else "https://m365.cloud.microsoft"
@@ -672,6 +717,7 @@ class SubstrateCopilotClient:
                 snapshot_lead = ""
                 yielded_images: set[str] = set()
                 yielded_any = False
+                reasoning = ReasoningSnapshots()
                 # Non-empty once the completion frame says the turn failed; holds the
                 # upstream's own verdict string so the error names it.
                 turn_failure = ""
@@ -680,10 +726,15 @@ class SubstrateCopilotClient:
                     try:
                         raw = await asyncio.wait_for(ws_iter.__anext__(), timeout=idle_timeout)
                     except asyncio.TimeoutError as exc:
-                        raise SubstrateCopilotError(
+                        raise SubstrateNetworkError(
                             "Upstream stopped sending data (idle timeout). The chat "
                             "connection was closed to avoid hanging."
                         ) from exc
+                    except websockets.ConnectionClosedError as exc:
+                        # A missing close frame is a broken transport. An explicit
+                        # protocol/error close is an upstream failure, not a 503.
+                        error_type = SubstrateNetworkError if exc.rcvd is None else SubstrateCopilotError
+                        raise error_type(f"Upstream chat connection interrupted: {exc}") from exc
                     except (StopAsyncIteration, websockets.ConnectionClosed):
                         break
                     for part in raw.split(SIGNALR_SEP):
@@ -698,6 +749,16 @@ class SubstrateCopilotClient:
                         if t == 6:
                             continue
                         _capture_suspicious_response_event(getattr(self, "_response_debug_sink", None), msg)
+                        if t == 1 and msg.get("target") == "update":
+                            for argument in msg.get("arguments") or []:
+                                if isinstance(argument, dict):
+                                    for event in reasoning.extract(argument.get("messages")):
+                                        self._note_reasoning(event)
+                                        yield event
+                        elif t == 2:
+                            for event in reasoning.extract((msg.get("item") or {}).get("messages")):
+                                self._note_reasoning(event)
+                                yield event
                         if t == 1 and msg.get("target") == "update":
                             args = (msg.get("arguments") or [{}])[0]
                             # Both frame kinds carry the quota, and which one has it
@@ -811,6 +872,8 @@ class SubstrateCopilotClient:
         except SubstrateCopilotError:
             raise
         except Exception as exc:
+            if _is_network_failure(exc):
+                raise SubstrateNetworkError(str(exc)) from exc
             raise SubstrateCopilotError(str(exc)) from exc
 
     async def chat(
@@ -821,6 +884,8 @@ class SubstrateCopilotClient:
         images: list | None = None,
     ) -> str:
         chunks: list[str] = []
-        async for chunk in self.chat_stream(prompt, additional_context, session, images):
-            chunks.append(chunk)
+        async with closing_stream(self.chat_stream(prompt, additional_context, session, images)) as owned_stream:
+            async for chunk in owned_stream:
+                if isinstance(chunk, str):
+                    chunks.append(chunk)
         return "".join(chunks)

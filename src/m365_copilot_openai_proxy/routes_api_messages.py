@@ -11,7 +11,10 @@ from fastapi.responses import JSONResponse
 
 from .call_log_store import append_call_log, record_response_text
 from .config import Settings
+from .error_handlers import network_error_payload, rate_limit_error_payload
 from .models import AnthropicMessagesRequest
+from .reasoning import ReasoningDelta, StreamChunk, collect_reasoning
+from .reasoning_stream import AnthropicContentStream
 from .response_helpers import _anthropic_stream
 from .stop_sequences import apply_stop, normalize_stop
 from .routes_api_common import (
@@ -36,8 +39,8 @@ from .session_helpers import (
 )
 from .session_store import PersistentSession
 from .stream_guard import GuardedStreamingResponse
-from .sse_stream import ANTHROPIC_PING, keepalive_stream, merge_sse_headers
-from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError, SubstrateThrottled
+from .sse_stream import ANTHROPIC_PING, closing_stream, keepalive_stream, merge_sse_headers
+from .substrate_client import SubstrateCopilotClient, SubstrateCopilotError, SubstrateNetworkError, SubstrateThrottled
 from .studio_planner import (
     PlannerTurn,
     ordered_or_answered,
@@ -470,6 +473,7 @@ def register_messages_routes(
                 headers=merge_sse_headers(),
             )
 
+        reasoning = collect_reasoning(client, studio_client)
         try:
             async def inline_answer() -> str:
                 return await client.chat(
@@ -631,6 +635,7 @@ def register_messages_routes(
                 content.append({"type": "text", "text": remaining})
             content.extend(_tool_use_blocks(tool_calls))
             record_response_message({"role": "assistant", "content": content})
+            content = reasoning.anthropic_blocks() + content
             return JSONResponse({
                 "id": f"msg_{uuid.uuid4().hex}",
                 "type": "message",
@@ -658,6 +663,7 @@ def register_messages_routes(
         if reason:
             blocks.append({"type": "text", "text": reason})
         record_response_message({"role": "assistant", "content": blocks})
+        blocks = reasoning.anthropic_blocks() + blocks
         return JSONResponse({
             "id": f"msg_{uuid.uuid4().hex}",
             "type": "message",
@@ -733,18 +739,21 @@ async def _anthropic_stream_with_tools(
     def sse(event: str, data: dict) -> str:
         return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
-    preamble_sent = False
+    content_stream = AnthropicContentStream()
+    yield sse("message_start", {"type": "message_start", "message": {"id": msg_id, "type": "message", "role": "assistant", "content": [], "model": model_alias, "stop_reason": None, "stop_sequence": None, "usage": anthropic_usage(usage_for_record(call_record))}})
+    yield sse("ping", {"type": "ping"})
     try:
         chunks: list[str] = []
 
-        async def inline_stream() -> AsyncIterator[str]:
-            async for item in client.chat_stream(
+        async def inline_stream() -> AsyncIterator[StreamChunk]:
+            async with closing_stream(client.chat_stream(
                 prompt, additional_context, session, images
-            ):
-                yield item
+            )) as owned_stream:
+                async for item in owned_stream:
+                    yield item
 
-        async def router_stream(fallback_turn) -> AsyncIterator[str]:
-            async for item in routed_or_streamed(
+        async def router_stream(fallback_turn) -> AsyncIterator[StreamChunk]:
+            async with closing_stream(routed_or_streamed(
                 client,
                 router_prompt,
                 prompt,
@@ -754,8 +763,9 @@ async def _anthropic_stream_with_tools(
                 should_fallback=should_fallback,
                 fallback_turn=fallback_turn,
                 on_router_fallback=on_router_fallback,
-            ):
-                yield item
+            )) as owned_stream:
+                async for item in owned_stream:
+                    yield item
 
         stream = ordered_or_streamed(
             studio_turn=studio_turn,
@@ -767,13 +777,14 @@ async def _anthropic_stream_with_tools(
             on_studio_fallback=on_studio_fallback,
             skip_router_fallback=skip_router_fallback,
         )
-        yield sse("message_start", {"type": "message_start", "message": {"id": msg_id, "type": "message", "role": "assistant", "content": [], "model": model_alias, "stop_reason": None, "stop_sequence": None, "usage": anthropic_usage(usage_for_record(call_record))}})
-        yield sse("content_block_start", {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}})
-        yield sse("ping", {"type": "ping"})
-        preamble_sent = True
 
-        async for delta in stream:
-            chunks.append(delta)
+        async with closing_stream(stream) as owned_stream:
+            async for delta in owned_stream:
+                if isinstance(delta, ReasoningDelta):
+                    for event in content_stream.reasoning(delta):
+                        yield event
+                    continue
+                chunks.append(delta)
         # Parsing runs on the RAW text: the media rewriter base64-encodes the
         # source URL into a ?u= parameter, erasing the file extension that
         # _looks_like_fake_file_claim needs to spot a natively generated file.
@@ -799,10 +810,15 @@ async def _anthropic_stream_with_tools(
                 else additional_context
             )
             retry_session = studio_turn.session if retry_uses_studio else session
-            async for delta in retry_client.chat_stream(
+            async with closing_stream(retry_client.chat_stream(
                 _RETRY_INSTRUCTION, retry_context, retry_session
-            ):
-                retry_chunks.append(delta)
+            )) as owned_stream:
+                async for delta in owned_stream:
+                    if isinstance(delta, ReasoningDelta):
+                        for event in content_stream.reasoning(delta):
+                            yield event
+                        continue
+                    retry_chunks.append(delta)
             retry_text = "".join(retry_chunks)
             retry_calls = _resolve_tool_calls(retry_text, tool_names or set(), read_only_guard)
             if retry_calls:
@@ -821,22 +837,22 @@ async def _anthropic_stream_with_tools(
         error_text = f"⚠️ 上游错误：{exc}"
         if call_record is not None:
             call_record["error"] = str(exc)
-        if isinstance(exc, SubstrateThrottled):
-            yield sse("error", {
-                "type": "error",
-                "error": {
-                    "type": "rate_limit_error",
-                    "message": str(exc),
-                },
-            })
+        if isinstance(exc, (SubstrateThrottled, SubstrateNetworkError)):
+            for event in content_stream.close():
+                yield event
+            payload = (
+                network_error_payload("/v1/messages", str(exc))
+                if isinstance(exc, SubstrateNetworkError)
+                else rate_limit_error_payload("/v1/messages", str(exc))
+            )
+            yield sse("error", payload)
             if on_text_done is not None:
                 on_text_done("".join(chunks))
             return
-        if not preamble_sent:
-            yield sse("message_start", {"type": "message_start", "message": {"id": msg_id, "type": "message", "role": "assistant", "content": [], "model": model_alias, "stop_reason": None, "stop_sequence": None, "usage": anthropic_usage(usage_for_record(call_record))}})
-            yield sse("content_block_start", {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}})
-        yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": error_text}})
-        yield sse("content_block_stop", {"type": "content_block_stop", "index": 0})
+        for event in content_stream.text(error_text):
+            yield event
+        for event in content_stream.close():
+            yield event
         if on_text_done is not None:
             on_text_done(error_text)
         yield sse("message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None}, "usage": anthropic_usage(usage_for_record(call_record))})
@@ -868,18 +884,14 @@ async def _anthropic_stream_with_tools(
     if blocks:
         _log.info("[anthropic_stream_with_tools] tool_use blocks: %s", [b["name"] for b in blocks])
 
-    index = 0
-    if text_out:
-        yield sse("content_block_delta", {"type": "content_block_delta", "index": index, "delta": {"type": "text_delta", "text": text_out}})
-    yield sse("content_block_stop", {"type": "content_block_stop", "index": index})
+    for event in content_stream.text(text_out):
+        yield event
+    for event in content_stream.close():
+        yield event
 
     for block in blocks:
-        index += 1
-        yield sse("content_block_start", {"type": "content_block_start", "index": index, "content_block": {"type": "tool_use", "id": block["id"], "name": block["name"], "input": {}}})
-        # Anthropic streams tool arguments as incremental input_json_delta; the
-        # buffered payload is sent as a single complete chunk.
-        yield sse("content_block_delta", {"type": "content_block_delta", "index": index, "delta": {"type": "input_json_delta", "partial_json": json.dumps(block["input"], ensure_ascii=False)}})
-        yield sse("content_block_stop", {"type": "content_block_stop", "index": index})
+        for event in content_stream.tool(block):
+            yield event
 
     # A hit only decides the turn's end when nothing else already did: a tool_use
     # turn is still reported as tool_use, since the caller must run the tool.

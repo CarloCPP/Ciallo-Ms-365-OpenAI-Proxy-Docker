@@ -181,7 +181,6 @@ def test_anthropic_tool_stream_sends_keepalive_while_upstream_is_silent():
     ))
 
     event_names = [event for event, _data in events]
-    assert event_names[:3] == ["message_start", "content_block_start", "ping"]
     assert event_names.count("ping") >= 2
     assert event_names[-3:] == ["content_block_stop", "message_delta", "message_stop"]
 

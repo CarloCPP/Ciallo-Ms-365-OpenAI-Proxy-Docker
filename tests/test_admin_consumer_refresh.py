@@ -88,6 +88,9 @@ def test_consumer_cookie_refresh_uses_the_same_combined_gate(tmp_path):
 
     assert response.status_code == 200
     assert response.json()["provider"] == "consumer"
+    assert response.json()["cookie_valid"] is True
+    assert response.json()["total"] == 1
+    assert response.json()["account"]["cookie_valid"] is True
     assert calls == [account_id]
 
 
@@ -111,8 +114,7 @@ def test_consumer_cookie_refresh_failure_keeps_the_saved_cookie_state(tmp_path):
     assert response.status_code == 502
     assert calls == [account_id]
     account = client.app.state.account_store.get(account_id)
-    assert account.cookie_valid is True
-    assert account.cookies == [
+    assert account.consumer_cookies == [
         {"name": "WLSSC", "value": "v", "domain": ".live.com", "path": "/"}
     ]
 

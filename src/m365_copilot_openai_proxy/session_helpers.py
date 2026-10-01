@@ -81,9 +81,13 @@ def _request_tenant(raw_request: Request) -> str:
     account = getattr(raw_request.state, "account", None)
     key_id = str(getattr(key_obj, "id", "") or "")
     account_id = str(getattr(account, "id", "") or "")
-    if key_id and account_id:
-        return f"{key_id}:{account_id}"
-    return key_id or account_id or "global"
+    tenant = f"{key_id}:{account_id}" if key_id and account_id else key_id or account_id or "global"
+    epoch = getattr(account, "protocol_epoch", 0)
+    if epoch > 0:
+        provider = getattr(account, "provider", "m365")
+        return f"{tenant}:protocol:{provider}:{epoch}"
+    # Epoch zero retains the names of sessions persisted before protocol switching.
+    return tenant
 
 
 def _detect_conversation_session(request: OpenAIChatRequest) -> tuple[str, str]:
@@ -200,7 +204,12 @@ def _responses_store_key_belongs_to_request(
     raw_request: Request,
     store_key: str,
 ) -> bool:
-    return store_key.startswith(f"{_request_tenant(raw_request)}:")
+    prefix = f"{_request_tenant(raw_request)}:"
+    if not store_key.startswith(prefix):
+        return False
+    # An epoch-zero request must not accept a newer epoch nested below its
+    # legacy key/account prefix (including an already-running old request).
+    return not store_key.startswith("protocol:", len(prefix))
 
 
 def _messages_session_key(request: AnthropicMessagesRequest) -> str | None:

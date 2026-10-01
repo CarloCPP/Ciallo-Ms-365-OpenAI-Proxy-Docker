@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol
 
+from .reasoning import ReasoningDelta, StreamChunk
 from .session_store import PersistentSession
+from .sse_stream import closing_stream
 from .substrate_client import SubstrateCopilotError, SubstrateThrottled
 
 
@@ -15,7 +18,7 @@ class ChatStreamClient(Protocol):
         additional_context: list[str],
         session: PersistentSession | None = None,
         images: list | None = None,
-    ) -> AsyncIterator[str]: ...
+    ) -> AsyncIterator[StreamChunk]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,10 +31,19 @@ class PlannerTurn:
 
 
 AnswerFallback = Callable[[], Awaitable[str]]
-StreamFallback = Callable[[], AsyncIterator[str]]
+StreamFallback = Callable[[], AsyncIterator[StreamChunk]]
 RouterAnswer = Callable[[AnswerFallback | None], Awaitable[str]]
-RouterStream = Callable[[StreamFallback | None], AsyncIterator[str]]
+RouterStream = Callable[[StreamFallback | None], AsyncIterator[StreamChunk]]
 NeedsFallback = Callable[[str], bool]
+
+
+def _failure_reason(exc: SubstrateCopilotError) -> str:
+    reason = f"upstream_error: {type(exc).__name__}: {exc}"
+    logging.getLogger("copilot_proxy").warning(
+        "[studio] planning failed before an answer; falling back: %s", reason,
+        exc_info=True,
+    )
+    return reason
 
 
 async def planned_or_answered(
@@ -44,24 +56,28 @@ async def planned_or_answered(
     chunks: list[str] = []
     yielded_any = False
     try:
-        async for chunk in studio_turn.client.chat_stream(
+        async with closing_stream(studio_turn.client.chat_stream(
             studio_turn.prompt,
             studio_turn.additional_context,
             studio_turn.session,
             studio_turn.images,
-        ):
-            if chunk:
-                yielded_any = True
-            chunks.append(chunk)
+        )) as owned_stream:
+            async for chunk in owned_stream:
+                if isinstance(chunk, ReasoningDelta):
+                    continue
+                if chunk:
+                    yielded_any = True
+                chunks.append(chunk)
     except SubstrateThrottled:
         raise
-    except SubstrateCopilotError:
+    except SubstrateCopilotError as exc:
         if yielded_any:
             raise
+        reason = _failure_reason(exc)
         if studio_turn.session is not None:
             studio_turn.session.reset_conversation()
         if on_fallback is not None:
-            on_fallback("upstream_error")
+            on_fallback(reason)
         return await fallback_turn()
     text = "".join(chunks)
     if should_fallback is not None and should_fallback(text):
@@ -77,44 +93,51 @@ async def planned_or_streamed(
     fallback_turn: StreamFallback,
     should_fallback: NeedsFallback | None = None,
     on_fallback: Callable[[str], None] | None = None,
-) -> AsyncIterator[str]:
+) -> AsyncIterator[StreamChunk]:
     # Tool-bearing callers buffer the whole upstream turn before emitting a
     # protocol response. When a predicate is supplied, buffer here too so a
     # no-call Studio answer can be replaced without duplicating visible text.
     buffered: list[str] | None = [] if should_fallback is not None else None
     yielded_any = False
     try:
-        async for chunk in studio_turn.client.chat_stream(
+        async with closing_stream(studio_turn.client.chat_stream(
             studio_turn.prompt,
             studio_turn.additional_context,
             studio_turn.session,
             studio_turn.images,
-        ):
-            if chunk:
-                yielded_any = True
-            if buffered is None:
-                yield chunk
-            else:
-                buffered.append(chunk)
+        )) as owned_stream:
+            async for chunk in owned_stream:
+                if isinstance(chunk, ReasoningDelta):
+                    yield chunk
+                    continue
+                if chunk:
+                    yielded_any = True
+                if buffered is None:
+                    yield chunk
+                else:
+                    buffered.append(chunk)
     except SubstrateThrottled:
         raise
-    except SubstrateCopilotError:
+    except SubstrateCopilotError as exc:
         if yielded_any:
             raise
+        reason = _failure_reason(exc)
         if studio_turn.session is not None:
             studio_turn.session.reset_conversation()
         if on_fallback is not None:
-            on_fallback("upstream_error")
-        async for chunk in fallback_turn():
-            yield chunk
+            on_fallback(reason)
+        async with closing_stream(fallback_turn()) as owned_stream:
+            async for chunk in owned_stream:
+                yield chunk
         return
     if buffered is not None:
         text = "".join(buffered)
         if should_fallback is not None and should_fallback(text):
             if on_fallback is not None:
                 on_fallback("no_tool_call")
-            async for chunk in fallback_turn():
-                yield chunk
+            async with closing_stream(fallback_turn()) as owned_stream:
+                async for chunk in owned_stream:
+                    yield chunk
             return
         for chunk in buffered:
             yield chunk
@@ -197,28 +220,31 @@ async def ordered_or_streamed(
     on_stage: Callable[[str], None] | None = None,
     on_studio_fallback: Callable[[str], None] | None = None,
     skip_router_fallback: bool = False,
-) -> AsyncIterator[str]:
+) -> AsyncIterator[StreamChunk]:
     """Streaming counterpart to :func:`ordered_or_answered`."""
-    async def inline_layer() -> AsyncIterator[str]:
+    async def inline_layer() -> AsyncIterator[StreamChunk]:
         if on_stage is not None:
             on_stage("inline")
-        async for chunk in inline_turn():
-            yield chunk
-
-    async def studio_layer(fallback: StreamFallback) -> AsyncIterator[str]:
-        if studio_turn is None:
-            async for chunk in inline_layer():
+        async with closing_stream(inline_turn()) as owned_stream:
+            async for chunk in owned_stream:
                 yield chunk
+
+    async def studio_layer(fallback: StreamFallback) -> AsyncIterator[StreamChunk]:
+        if studio_turn is None:
+            async with closing_stream(inline_layer()) as owned_stream:
+                async for chunk in owned_stream:
+                    yield chunk
             return
         if on_stage is not None:
             on_stage("studio")
-        async for chunk in planned_or_streamed(
+        async with closing_stream(planned_or_streamed(
             studio_turn=studio_turn,
             fallback_turn=fallback,
             should_fallback=should_fallback,
             on_fallback=on_studio_fallback,
-        ):
-            yield chunk
+        )) as owned_stream:
+            async for chunk in owned_stream:
+                yield chunk
 
     if prefer_router:
         if on_stage is not None:
@@ -228,8 +254,9 @@ async def ordered_or_streamed(
             if studio_turn is not None
             else None
         )
-        async for chunk in router_turn(fallback):
-            yield chunk
+        async with closing_stream(router_turn(fallback)) as owned_stream:
+            async for chunk in owned_stream:
+                yield chunk
         return
     if studio_turn is not None:
         fallback = (
@@ -237,17 +264,20 @@ async def ordered_or_streamed(
             if skip_router_fallback
             else lambda: _router_stream(router_turn, inline_layer, on_stage)
         )
-        async for chunk in studio_layer(fallback):
-            yield chunk
+        async with closing_stream(studio_layer(fallback)) as owned_stream:
+            async for chunk in owned_stream:
+                yield chunk
         return
     if on_stage is not None:
         on_stage("router")
-    async for chunk in router_turn(None):
-        yield chunk
+    async with closing_stream(router_turn(None)) as owned_stream:
+        async for chunk in owned_stream:
+            yield chunk
 
 
 async def _router_stream(router_turn, fallback, on_stage):
     if on_stage is not None:
         on_stage("router")
-    async for chunk in router_turn(fallback):
-        yield chunk
+    async with closing_stream(router_turn(fallback)) as owned_stream:
+        async for chunk in owned_stream:
+            yield chunk

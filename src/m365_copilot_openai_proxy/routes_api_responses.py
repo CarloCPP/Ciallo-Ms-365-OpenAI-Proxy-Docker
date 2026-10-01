@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from .call_log_store import append_call_log, record_response_text
 from .config import Settings
 from .models import OpenAIResponsesRequest
+from .reasoning import collect_reasoning
 from .response_helpers import (
     _REQUIRED_TOOL_CHOICE_ERROR,
     _resolve_responses_tool_calls,
@@ -227,14 +228,16 @@ def register_responses_routes(
                 request.previous_response_id,
                 app.state.media_proxy_secret,
             )
+            if (
+                previous_session_key is not None
+                and not _responses_store_key_belongs_to_request(raw, previous_session_key)
+            ):
+                raise ValueError("Invalid or expired Responses previous_response_id.")
             previous_session = (
                 app.state.session_store.get_existing(previous_session_key)
                 if (
                     not is_consumer
                     and previous_session_key is not None
-                    and _responses_store_key_belongs_to_request(
-                        raw, previous_session_key
-                    )
                 )
                 else None
             )
@@ -818,6 +821,7 @@ async def _complete_nonstream_response(
     skip_router_fallback,
     allow_final_answer=False,
 ):
+    reasoning = collect_reasoning(client, studio_turn.client if studio_turn is not None else None)
     router_decided = False
 
     def note_router_decision() -> None:
@@ -984,7 +988,7 @@ async def _complete_nonstream_response(
 
     text = _strip_tool_call_blocks(raw_text) if tool_names else raw_text
     text = media_rewriter(text)
-    output: list[dict] = []
+    output = reasoning.responses_items()
     if text or not tool_calls:
         output.append(_responses_message_item(text))
     output.extend(_responses_function_call_items(tool_calls))

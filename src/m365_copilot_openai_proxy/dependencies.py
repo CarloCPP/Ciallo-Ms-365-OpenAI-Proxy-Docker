@@ -14,25 +14,33 @@ from .token_store import decode_jwt_payload
 _CAPTURE_LIMIT = 20
 
 
-def _record_throttle_window(app: FastAPI, account_id: str):
-    """Persist the reset time upstream named, if this turn's failure named one.
-
-    Consumer's throttle frame carries ``nextAvailableAt``; the adapter keeps it on
-    the translated error, so keying on the attribute rather than the exception type
-    covers both the raw and translated shapes -- and M365, whose throttle frame
-    names no time, simply never has the attribute. The number is otherwise gone the
-    moment the 429 is written, and rediscovering it costs another turn.
-    """
+def _record_turn_outcome(app: FastAPI, account):
+    """Keep request-scoped throttle observations without gating future turns."""
     store = getattr(app.state, "account_store", None)
-    if store is None or not account_id:
+    if store is None or account is None:
         return None
+    account_id = account.id
+    identity = (
+        getattr(account, "provider", "m365"),
+        getattr(account, "consumer_account_id", ""),
+    )
+    epoch = getattr(account, "protocol_epoch", 0)
 
-    def record(exc: BaseException) -> None:
+    def record(exc: BaseException | None, mode: str, started_at: float) -> None:
+        if exc is None:
+            store.clear_throttled_until(
+                account_id, mode=mode, started_at=started_at, expected_identity=identity,
+                expected_epoch=epoch,
+            )
+            return
         from .consumer_client import parse_next_available_at
 
         when = parse_next_available_at(str(getattr(exc, "next_available_at", "") or ""))
         if when:
-            store.set_throttled_until(account_id, when)
+            store.set_throttled_until(
+                account_id, when, mode=mode, expected_identity=identity,
+                expected_epoch=epoch,
+            )
 
     return record
 
@@ -55,7 +63,7 @@ def _throttled(app: FastAPI, account, client):
     return ThrottledClient(
         client,
         lambda: gate.hold(account_id, int(getattr(app.state, "account_concurrency", 0) or 0)),
-        _record_throttle_window(app, account_id),
+        _record_turn_outcome(app, account),
     )
 
 
@@ -99,7 +107,7 @@ def _attach_quota_sink(app: FastAPI, client: SubstrateCopilotClient, account) ->
         return
 
 
-def _consumer_gate_for(app: FastAPI, account_id: str):
+def _consumer_gate_for(app: FastAPI, account_id: str, expected_epoch: int | None = None):
     """Build the mid-request credential re-mint for one consumer account.
 
     ConsumerCopilotClient calls this at most once per turn, and only on a
@@ -119,6 +127,8 @@ def _consumer_gate_for(app: FastAPI, account_id: str):
 
     async def gate() -> dict:
         from .consumer_client import ClearanceRequired
+        if expected_epoch is not None and not app.state.account_store.is_protocol_current(account_id, expected_epoch, "consumer"):
+            raise ClearanceRequired("Account protocol changed; start a new request.")
 
         if not await scheduler.refresh_consumer(account_id):
             # Every failure mode here -- browser absent, launch broken, MSA
@@ -128,13 +138,15 @@ def _consumer_gate_for(app: FastAPI, account_id: str):
                 "Consumer credentials expired and the unattended refresh could "
                 "not renew them. Re-push them from the userscript."
             )
+        if expected_epoch is not None and not app.state.account_store.is_protocol_current(account_id, expected_epoch, "consumer"):
+            raise ClearanceRequired("Account protocol changed during refresh; start a new request.")
         account = app.state.account_store.get(account_id)
         if account is None:
             raise ClearanceRequired("Consumer account disappeared mid-refresh.")
         from .consumer_gate import _pick_cookies
 
         return {
-            "cookies": _pick_cookies(account.cookies or []),
+            "cookies": _pick_cookies(account.consumer_cookies or []),
             "access_token": getattr(account, "consumer_token", ""),
             "identity_type": getattr(account, "consumer_identity_type", ""),
         }
@@ -193,12 +205,12 @@ def create_api_dependencies(
                     lambda **kwargs: ConsumerCopilotClient(**kwargs)
                 )
                 consumer = factory(
-                    cookies=_pick_cookies(account.cookies or []),
+                    cookies=_pick_cookies(account.consumer_cookies or []),
                     access_token=getattr(account, "consumer_token", ""),
                     identity_type=getattr(account, "consumer_identity_type", ""),
                     idle_timeout=idle_timeout,
                     proxy=resolve_account_proxy(account) or None,
-                    gate=_consumer_gate_for(app, account.id),
+                    gate=_consumer_gate_for(app, account.id, getattr(account, "protocol_epoch", 0)),
                 )
                 return _throttled(app, account, ConsumerClientAdapter(
                     consumer,

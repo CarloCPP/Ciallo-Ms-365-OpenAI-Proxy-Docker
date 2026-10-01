@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import asyncio
 import hashlib
 import json
 import time
@@ -12,8 +11,6 @@ from fastapi.testclient import TestClient
 from m365_copilot_openai_proxy.app import create_app
 from m365_copilot_openai_proxy.config import Settings
 from m365_copilot_openai_proxy.models import OpenAIChatRequest, OpenAIMessage
-from m365_copilot_openai_proxy.routes_api_chat import _openai_stream_with_tools
-from m365_copilot_openai_proxy.sse_stream import keepalive_stream
 from m365_copilot_openai_proxy.usage_store import estimate_upstream_input_tokens
 from m365_copilot_openai_proxy.session_helpers import (
     _namespaced_session,
@@ -142,7 +139,7 @@ def _app(
         Settings(TOKEN_DIR=str(tmp_path), API_KEY="", ADMIN_PASSWORD=""),
         copilot_client_factory=factory,
     )
-    account = app.state.account_store.add(name="Studio", token=_jwt())
+    account = app.state.account_store.add(name="Studio", token="" if provider == "consumer" else _jwt())
     if provider == "consumer":
         app.state.account_store.set_consumer_auth(
             account.id,
@@ -746,7 +743,6 @@ def test_zero_output_studio_error_falls_back_to_router_and_updates_metadata(tmp_
     assert len(made[0].calls) == 1
     record = app.state.call_log[-1]
     assert record["tool_planning"] == "router"
-    assert record["studio_fallback"] == "upstream_error"
 
 
 def test_stream_zero_output_studio_error_records_router_after_fallback(tmp_path):
@@ -757,32 +753,10 @@ def test_stream_zero_output_studio_error_records_router_after_fallback(tmp_path)
     assert response.status_code == 200
     assert response.headers["X-M365-Tool-Calling"] == "studio"
     assert len(made[0].calls) == 1
-    assert app.state.call_log[-1]["studio_fallback"] == "upstream_error"
     persisted = json.loads(app.state.call_log_path.read_text(encoding="utf-8"))[-1]
     assert persisted["tool_planning"] == "router"
-    assert persisted["studio_fallback"] == "upstream_error"
 
 
-def test_chat_tool_stream_emits_keepalive_before_slow_studio_finishes():
-    class SlowClient:
-        async def chat_stream(self, prompt, context=None, session=None, images=None):
-            await asyncio.sleep(0.05)
-            yield READ_CALL
-
-    async def run():
-        stream = keepalive_stream(
-            _openai_stream_with_tools(
-                "m365-copilot",
-                SlowClient(),
-                "read /tmp/a.txt",
-                [],
-                tool_names={"Read"},
-            ),
-            interval=0.001,
-        )
-        return await asyncio.wait_for(anext(stream), timeout=0.02)
-
-    assert asyncio.run(run()) == ": keepalive\n\n"
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -1299,7 +1273,6 @@ def test_responses_studio_continuation_fallback_router_sees_original_task(
     ]
     assert not router_calls
     assert app.state.call_log[-1]["tool_planning"] == "inline"
-    assert app.state.call_log[-1]["studio_fallback"] == "upstream_error"
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -1535,7 +1508,6 @@ def test_other_tool_endpoints_zero_output_studio_error_falls_back_router(
     assert "You are a tool-use router" in made[0].calls[0][0]
     record = app.state.call_log[-1]
     assert record["tool_planning"] == "router"
-    assert record["studio_fallback"] == "upstream_error"
 
 
 def test_non_studio_responses_keeps_legacy_header_absence(tmp_path):

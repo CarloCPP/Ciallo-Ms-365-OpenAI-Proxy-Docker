@@ -331,6 +331,7 @@ def test_the_recorded_window_survives_a_reload_and_reaches_both_payloads(tmp_pat
     path = tmp_path / "accounts.json"
     store = AccountStore(persist_path=path)
     acc = store.add(name="a")
+    store.set_consumer_auth(acc.id, [], "consumer-token", consumer_account_id="home:a")
     assert store.set_throttled_until(acc.id, 1800000000.0) is not None
 
     reloaded = AccountStore(persist_path=path).get(acc.id)

@@ -5,6 +5,7 @@ import re
 from difflib import SequenceMatcher
 
 from .media_proxy import normalize_m365_media_text
+from .reasoning import is_reasoning_entry
 from .tone_options import tone_server_interpreter
 from .tool_call_parser import _NO_TOOL_MARKER
 
@@ -478,6 +479,8 @@ def _extract_image_urls(value: object) -> list[str]:
                 add(node)
             return
         if not isinstance(node, dict):
+            return
+        if is_reasoning_entry(node):
             return
 
         type_value = str(node.get("type") or node.get("contentType") or node.get("mediaType") or "").lower()

@@ -4,12 +4,6 @@ _ADMIN_ACCOUNTS_JS = """let __accounts=[];
 let __selectedAccountIds=new Set();
 let __refreshingAccountIds=new Set();
 let __selectedAccount=localStorage.getItem('admin_sel_account')||'';
-// A stored refresh token refreshes over plain HTTP, so it counts as automatic
-// even for token_source==='manual' (that is what a PKCE sign-in leaves behind).
-function acctRefresh(a,cookieValid){
-  const auto=a.provider==='consumer'||!!a.has_refresh_token||(a.token_source==='cdp'&&cookieValid);
-  return {auto:auto,available:auto||a.token_source==='cdp'};
-}
 function selectAccount(id){
   __selectedAccount=(__selectedAccount===id)?'':id;
   localStorage.setItem('admin_sel_account',__selectedAccount);
@@ -76,28 +70,36 @@ async function loadAccounts(localOnly=false){
       const boundMain=boundNames[0]||a.name||'name';
       const boundTitle=boundNames.length?boundNames.join(String.fromCharCode(10)):boundMain;
       const boundMore=boundNames.length>1?' +'+(boundNames.length-1):'';
-      const refreshAutomatic=acctRefresh(a,cookieValid).auto;
-      const refreshAvailable=acctRefresh(a,cookieValid).available;
-      const refreshMode=refreshAutomatic?t('refresh_auto'):(refreshAvailable?t('refresh_unavailable'):t('refresh_manual'));
-      const refreshColor=refreshAutomatic?'#a78bfa':(refreshAvailable?'#f59e0b':'var(--faint)');
-      const refreshBadge='<span class="refresh-mode-tag" style="width:63px;box-sizing:border-box;display:inline-flex;justify-content:center;padding:.15rem .25rem;border-radius:99px;font-size:.72rem;background:rgba(167,139,250,.12);color:'+refreshColor+';border:1px solid rgba(167,139,250,.28)">'+refreshMode+'</span>';
+      const renewal=a.protocols?.[a.provider]?.refresh_mode||'manual';
+      const refreshAutomatic=renewal==='rt'||renewal==='browser';
+      const refreshMode=refreshAutomatic?t('refresh_auto'):t('refresh_manual');
+      const refreshColor=refreshAutomatic?'#a78bfa':'var(--faint)';
+      const refreshBadge='<span class="refresh-mode-tag" title="'+t('protocol_refresh_'+(refreshAutomatic?renewal:'manual'))+'" style="width:63px;box-sizing:border-box;display:inline-flex;justify-content:center;padding:.15rem .25rem;border-radius:99px;font-size:.72rem;background:rgba(167,139,250,.12);color:'+refreshColor+';border:1px solid rgba(167,139,250,.28)">'+refreshMode+'</span>';
+      const protocolBadges='<div style="font-size:.68rem;color:var(--muted)" title="'+t('protocol_saved_note')+'">'+['m365','consumer'].map(provider=>{
+        const p=a.protocols?.[provider]||{};
+        return '<span data-protocol="'+provider+'" style="display:block">'+(provider==='m365'?'Substrate':'ChatAI')+' · '+t(p.stored?'protocol_stored':'protocol_missing')+(p.active?' · '+t('protocol_current'):'')+'</span>';
+      }).join('')+'</div>';
       const tokenCell='<div class="acct-token-control"><div class="acct-token-primary">'+badge+'</div><div class="acct-token-secondary"><button class="acct-token-refresh" data-refresh-id="'+esc(a.id)+'" onclick="event.stopPropagation();refreshAccount(\\''+a.id+'\\')">'+t('btn_token_refresh')+'</button><button class="acct-token-update" onclick="event.stopPropagation();toggleAccountToken(\\''+a.id+'\\')">'+t('btn_push_token')+'</button><button class="acct-token-remove" onclick="event.stopPropagation();clearAccountToken(\\''+a.id+'\\')">'+t('btn_remove_token')+'</button></div></div>';
       const mediaTag=(label,ok)=>'<span class="media-status-tag" style="display:inline-flex;align-items:center;justify-content:center;padding:.14rem .5rem;border-radius:99px;font-size:.68rem;background:'+(ok?'rgba(63,185,112,.16)':'rgba(148,163,184,.12)')+';color:'+(ok?'#3fb970':'#94a3b8')+';border:1px solid '+(ok?'rgba(63,185,112,.4)':'rgba(148,163,184,.25)')+'">'+label+'</span>';
       const mediaCell='<div class="media-status-list">'+mediaTag(t('media_image'),!!a.has_designer_auth)+mediaTag(t('media_attach'),!!a.has_media_auth)+'</div>';
       const sel=a.id===__selectedAccount;
-      const provBadge=a.provider==='consumer'?'<span style="margin-left:.4rem;padding:.1rem .45rem;border-radius:99px;font-size:.66rem;vertical-align:middle;background:rgba(255,94,219,.14);color:#ff5edb;border:1px solid rgba(255,94,219,.4)">'+t('provider_consumer')+'</span>':'';
-      // Only while the window upstream named is still open: it clears itself, so
-      // the row never carries a stale quota claim. The exact time is the hover
-      // title, matching how the cookie timestamps are surfaced.
+      const provBadge=a.is_personal?'<span class="acct-personal-tag" style="margin-left:.4rem;padding:.1rem .45rem;border-radius:99px;font-size:.66rem;vertical-align:middle;background:rgba(255,94,219,.14);color:#ff5edb;border:1px solid rgba(255,94,219,.4)">'+t('provider_consumer')+' · '+(a.provider==='consumer'?'ChatAI':'Substrate')+'</span>':'';
+      // A recent request observation, not an account-wide availability verdict.
       const throttledUntil=Number(a.throttled_until||0);
-      const throttledBadge=(throttledUntil*1000>Date.now())?'<span class="acct-throttled-tag" title="'+esc(t('throttled_until_label')+': '+fmtTs(throttledUntil))+'" style="margin-left:.4rem;padding:.1rem .45rem;border-radius:99px;font-size:.66rem;vertical-align:middle;background:rgba(167,139,250,.14);color:#a78bfa;border:1px solid rgba(167,139,250,.4)">'+t('throttled_short')+'</span>':'';
+      let throttledBadge='';
+      if(throttledUntil*1000>Date.now()){
+        const throttledMode=String(a.throttled_mode||'');
+        const throttledLabel='ChatAI · '+t('throttled_short')+' · '+(throttledMode||t('throttled_mode_unknown'));
+        const throttledTitle=t('throttled_until_label')+': '+fmtTs(throttledUntil)+(a.throttled_at?'\\n'+t('throttled_observed_label')+': '+fmtTs(a.throttled_at):'')+'\\n'+t('throttled_scope_note');
+        throttledBadge='<span class="acct-throttled-tag" title="'+esc(throttledTitle)+'" style="margin-left:.4rem;padding:.1rem .45rem;border-radius:99px;font-size:.66rem;vertical-align:middle;background:rgba(167,139,250,.14);color:#a78bfa;border:1px solid rgba(167,139,250,.4)">'+esc(throttledLabel)+'</span>';
+      }
       h+='<tr class="acct-row '+(sel?'selected':'')+'" onclick="selectAccount(\\''+a.id+'\\')" style="border-top:1px solid var(--inner-border);cursor:pointer">'
         +'<td style="padding:.4rem"><input class="acct-check" type="checkbox" '+(__selectedAccountIds.has(a.id)?'checked':'')+' onclick="event.stopPropagation();toggleAccountSelected(\\''+a.id+'\\',this.checked)"></td>'
         +'<td style="padding:.4rem">'+(sel?'<span style="color:#38bdf8">&#9679; </span>':'')+'<span>'+esc(a.name||a.id)+(a.email?' <span style="color:var(--faint);font-size:.72rem">'+esc(a.email)+'</span>':'')+'</span>'+provBadge+throttledBadge+'<div title="'+esc(boundTitle)+'" style="color:var(--faint);font-size:.7rem">'+esc(boundMain)+esc(boundMore)+' id: '+esc(a.id)+' · '+t('bound_count_label')+': '+a.key_count+'</div></td>'
         +'<td style="padding:.4rem;white-space:nowrap">'+tokenCell+'</td>'
         +'<td style="padding:.4rem;white-space:nowrap">'+cookieMeta+'</td>'
         +'<td style="padding:.4rem">'+mediaCell+'</td>'
-        +'<td style="padding:.4rem">'+refreshBadge+'</td>'
+        +'<td style="padding:.4rem">'+refreshBadge+protocolBadges+'</td>'
         +'<td class="acct-actions-cell" style="padding:.4rem;text-align:right;white-space:nowrap">'
         +'<button class="acct-delete-btn" onclick="event.stopPropagation();delAccount(\\''+a.id+'\\')" style="font-size:.72rem;padding:3px 8px;background:linear-gradient(135deg,#ef4444,#dc2626)">'+t('btn_delete')+'</button>'
         +'</td></tr>'

@@ -1,0 +1,1725 @@
+{
+  "date": "2026-10-01",
+  "scope": "A/D/E: typed upstream M365 reasoning summaries across three APIs, transport failure classification, and Studio fallback diagnostics. Implementation and partial deployed acceptance only; full acceptance remains blocked.",
+  "raw_credentials_included": false,
+  "full_response_bodies_included": false,
+  "session_identifiers_included": false,
+  "full_acceptance_passed": false,
+  "personal_display_fix_20261001": {
+    "scope": "Personal Substrate labels and browser-supplied display email; same-account Soon protocol alignment",
+    "supersedes_personal_account_status_in_older_sections": true,
+    "regression_observed_previous_turn": {
+      "passed": 2600,
+      "skipped": 3,
+      "warnings": 11,
+      "seconds": 119.11
+    },
+    "userscript_version": "1.0.79",
+    "deployment_backup": "/tmp/personal-display-20261001-083002.tar.gz",
+    "same_account_soon_cutover": {
+      "api_status": 200,
+      "marker_preserved": true,
+      "provider": "m365",
+      "legacy_consumer_token_cleared": true
+    },
+    "zy_display_update": {
+      "push_status": 200,
+      "displaced": 0,
+      "source": "Current tab sessionStorage MSAL identity matched stored active homeAccountId; original userscript pushUserToken helper executed using existing JWE accepted by live Substrate upstream. Not a freshly captured replacement JWE."
+    },
+    "user_screenshot_confirmed": {
+      "soon_personal_substrate_tag": true,
+      "zy_personal_substrate_tag": true,
+      "zy_email_present": true
+    },
+    "live_account_metadata": {
+      "accounts": [
+        {
+          "id": "acct_b1172aff4361",
+          "provider": "m365",
+          "personal": true,
+          "email_present": true,
+          "has_substrate_rt": false,
+          "has_consumer_rt": false,
+          "has_consumer_token": false,
+          "has_consumer_identity": false,
+          "token_source": "manual",
+          "cookie_valid": false,
+          "saved_consumer_profiles": 1,
+          "browser_chromium_profile_present": true
+        },
+        {
+          "id": "acct_2eed3918214f",
+          "provider": "m365",
+          "personal": false,
+          "email_present": true,
+          "has_substrate_rt": true,
+          "has_consumer_rt": false,
+          "has_consumer_token": false,
+          "has_consumer_identity": false,
+          "token_source": "cdp",
+          "cookie_valid": true,
+          "saved_consumer_profiles": 0,
+          "browser_chromium_profile_present": true
+        },
+        {
+          "id": "acct_950e9a053977",
+          "provider": "m365",
+          "personal": true,
+          "email_present": true,
+          "has_substrate_rt": false,
+          "has_consumer_rt": false,
+          "has_consumer_token": false,
+          "has_consumer_identity": false,
+          "token_source": "manual",
+          "cookie_valid": false,
+          "saved_consumer_profiles": 0,
+          "browser_chromium_profile_present": true
+        }
+      ],
+      "camoufox_installed": true,
+      "pending_acceptance_keys": []
+    },
+    "full_matrix_status": "not_claimed; no final result artifact from interrupted launcher; Studio lacks required agent",
+    "new_image_built_or_published": false
+  },
+  "latest_20261001_resume": {
+    "observed_at": 1790839891.6407163,
+    "supersedes_current_status_in_older_sections": true,
+    "source_sync": {
+      "merge_commit": "92453eb",
+      "stash_backup": "2239692732395c318934b3de47b3e3df2a9a9340",
+      "pending_changes_restored": true
+    },
+    "deployment": {
+      "container": "ciallo-ms365-proxy-multi",
+      "method": "source-only overlay over docker exec stdin; target restart",
+      "backup": "/tmp/fox-quota-20261001-063157.tar.gz",
+      "files_written": 93,
+      "sha256_by_file": {
+        "src/m365_copilot_openai_proxy/account_concurrency.py": "6056c0e521dc289c33df7749e6f120fceb177f7d6059df0e79c480d242e4828b",
+        "src/m365_copilot_openai_proxy/account_crypto.py": "b68ec5922b367027518132890f33f315a41e40cf82105679543f79cdfd9bb58b",
+        "src/m365_copilot_openai_proxy/account_serializers.py": "96743f183509551171e19170271d9e55c74732ce9411492bb87a88eee61e4ede",
+        "src/m365_copilot_openai_proxy/account_store.py": "2320260c16dfb5012f20e3e5803551be0f079daf3ac874f84eb31300a8bfbe95",
+        "src/m365_copilot_openai_proxy/admin_auth.py": "ada6f4833fb5e20707335b50e6591bd69a7a16781d417738071ba60821a82b63",
+        "src/m365_copilot_openai_proxy/app.py": "6d665bf510c9cb3d2dcaa19c2d9df0c7d262ff9733049d5813fbd0e852f4f747",
+        "src/m365_copilot_openai_proxy/atomic_write.py": "a8a54990754d165fed817cff8cde3561561c09fc2a209ea6a5a31196187672ac",
+        "src/m365_copilot_openai_proxy/auth_middleware.py": "cd60d18944c359c69c9c9088f3171e682759fa737dae235f95cba0d39b19e043",
+        "src/m365_copilot_openai_proxy/cli.py": "186bcc18aec9c08c41d9820e0f17a8a672931739c1d741b7465398e86ed3fda5",
+        "src/m365_copilot_openai_proxy/cli_cdp.py": "83ae5a6f51861d7d44df7fe38332e0b7d717153217e6935e0efbb8b95b1a931a",
+        "src/m365_copilot_openai_proxy/consumer_adapter.py": "626b1dfe7b970b44901f8da46aa4577dc2bc452a115a7e5c0e89c2679d76aee4",
+        "src/m365_copilot_openai_proxy/consumer_camoufox.py": "60d8d41444b5f1cf97e87d8a5d1951575716eb29322836559b3c2644836c3c38",
+        "src/m365_copilot_openai_proxy/consumer_client.py": "f926be86c272ffb1bd8e433d3c9caf314e4c4544ab3421b3fd29bdd0f4b8e356",
+        "src/m365_copilot_openai_proxy/consumer_refresh_via_rt.py": "95424d8f2368a3461aa7b7d2673d0bba78a6357bf21e39f723c93a0baf148359",
+        "src/m365_copilot_openai_proxy/conversation_quota.py": "92b605cca670917cb0bd412e141a061151bbbb0d3d7adbbd50278b27f0a24d2a",
+        "src/m365_copilot_openai_proxy/dependencies.py": "f4642d3740a952ca15cbcc50332927049b488c73cf8cc38605660dc8fe0a9d09",
+        "src/m365_copilot_openai_proxy/error_handlers.py": "0c185a9c5ee30a79473981b9fdf6e81c950246341e6170d64c893b351799b613",
+        "src/m365_copilot_openai_proxy/history_index.py": "ff9699748d2fc580618683097baa3a8dcc9674fcb89eddde78bf9b5485cbbb3d",
+        "src/m365_copilot_openai_proxy/http_cache.py": "b4bc2d0ddac2a274c0cb490a47c945ea7d54e87475c5f2dea48d6993a942f15c",
+        "src/m365_copilot_openai_proxy/key_store.py": "19a52642355ff2586cda4f61b4824184d2bc892e1e459692b223759c95ad4f8d",
+        "src/m365_copilot_openai_proxy/m365_cloud_client.py": "c637ad2c4131bed4cc8d64b2908a52ac4ec73af8256f44cdcc37cfa3f852d3f4",
+        "src/m365_copilot_openai_proxy/media_proxy.py": "453d327a1670c1c081d7916e1d0452014dba3f925e926db3c3edffc2737694c5",
+        "src/m365_copilot_openai_proxy/models.py": "e573202f4e65969fba50d31cd1eda8bc1db8368ac40df5777b721d3bb14e5956",
+        "src/m365_copilot_openai_proxy/personalization.py": "b281445f4736741c0701f5708b029413eae24e44fc0b09a1e096a7fb20b872ba",
+        "src/m365_copilot_openai_proxy/pkce_login.py": "69065c8a40e96818c23bdcc85fb463acbe9d3e6f80260d9bb04850f99c437d8a",
+        "src/m365_copilot_openai_proxy/ratelimit.py": "2086f96272764e433bb0c9577b94650829b428df11ae41513522d606e2a020ac",
+        "src/m365_copilot_openai_proxy/reasoning.py": "ee154d61824bcd87bdea90d88859fbef9ee93b93c88b2431fad5632a43219734",
+        "src/m365_copilot_openai_proxy/reasoning_stream.py": "58c52a3f150afc806d420aa7c0f84bfb7b0c74d6efc4ea66f2069148ad6a0c37",
+        "src/m365_copilot_openai_proxy/refresh_chromium.py": "a6e2b5d6054e0b177b59a1afc4b0073ac57e6bae2acc578a5c721c45b1b216e0",
+        "src/m365_copilot_openai_proxy/refresh_cookies.py": "3b280b4be227f3127177a371ce50391477eb4ca7b4d436c3959068e33a9194df",
+        "src/m365_copilot_openai_proxy/refresh_cookie_inject.py": "f9903bf5af43570e9285f7f621195f87d4d659b1feb13aa41b711d11596dbdb3",
+        "src/m365_copilot_openai_proxy/refresh_image_fetch.py": "624b13dacb36cfae8f97e4fa4786c1b2530562a62f2eb73bc64e2dbab322f9be",
+        "src/m365_copilot_openai_proxy/refresh_media.py": "379dfcc2ef3a7a44b6c17abbfcff32cabc846c939bfbfbef44fef184a6d631b3",
+        "src/m365_copilot_openai_proxy/refresh_scheduler.py": "d3c805aeb94f189b93143d9efa0e57a1d6e97e7dc810f9f0c5c46eb07af71efe",
+        "src/m365_copilot_openai_proxy/refresh_via_rt.py": "d58e75d205c91853a9c599971f800037e65c1f457084a9a06ea0116eb4c07023",
+        "src/m365_copilot_openai_proxy/response_helpers.py": "5d0387044b6110e373252c05347e9d6ce63e91767611bf9ba4e674ecb8b3ae1a",
+        "src/m365_copilot_openai_proxy/routes_admin.py": "d679f38e74cb3941955a20c5caabac0cfe840fe110ad4841ac1b228222f3e821",
+        "src/m365_copilot_openai_proxy/routes_admin_debug.py": "bca4c81f9ab3316efdac5b7c2d6e4f7c079de3344b0a718308c33a1e6f32b62a",
+        "src/m365_copilot_openai_proxy/routes_admin_modeltest.py": "a28a2db6aa307b47d0931c3adbc7d9150b62d2b9c63da1753a2b4c6430442f13",
+        "src/m365_copilot_openai_proxy/routes_admin_personalization.py": "b3bf622189accf097f0eab9ef604c076867797e1bb242d06e816e4abc5d4e105",
+        "src/m365_copilot_openai_proxy/routes_admin_settings.py": "38e907f286b4a88ad8e4bd3aec0a56fdecca5c364b700a5cceb7539a29055104",
+        "src/m365_copilot_openai_proxy/routes_api_chat.py": "988200e2b52b691446bb7f4cba429c5bc9bc0a6e996f15510794730ae940627a",
+        "src/m365_copilot_openai_proxy/routes_api_common.py": "628b8a19cc09602a2e5ba24af199809f53e9f98f1168be721c00e83aac7b5460",
+        "src/m365_copilot_openai_proxy/routes_api_messages.py": "fef315260ef91b631f970b3467009dda0bff6100b8c3c60428d9547f6ab61065",
+        "src/m365_copilot_openai_proxy/routes_api_responses.py": "d0a6dc5a3519e385f2ec25e0cca25565f50d4bd003e0bba4b37a4360821a5c62",
+        "src/m365_copilot_openai_proxy/routes_media_proxy.py": "11ab33bc13a8b532b418ddd83c450081bd24385ce49646fc5f8f01e697dd8ea6",
+        "src/m365_copilot_openai_proxy/routes_pkce.py": "8d6bd3913488cd918ce807c31e8ce47fba9cbc7a0e45f24057fa038583339084",
+        "src/m365_copilot_openai_proxy/routes_sessions.py": "0870fbc418c44530df8cff3709b10deb9606b89c5fc1f7b04a6b76fdaf8a09a7",
+        "src/m365_copilot_openai_proxy/routes_user.py": "4397884f723e69b54d91853346d8a2af9c418d4e699a7b8a5ddbed904126333f",
+        "src/m365_copilot_openai_proxy/routes_web.py": "b08e229a16273bee6598912654ba73dae734509f839219835c6eb50a3c84dffc",
+        "src/m365_copilot_openai_proxy/route_registry.py": "81560ad946343556497016aecab0b8967eb5da5415c7816121230b5c179abe86",
+        "src/m365_copilot_openai_proxy/runtime_settings.py": "fa92ac626ee8e277e16f7527a4904f5758bff45d9909e9e7886b6fc2cf722327",
+        "src/m365_copilot_openai_proxy/session_autoclean.py": "6c7a9666747c195d77f0aeb93101b3218128415691bc7a408b23c6a26e38b8a4",
+        "src/m365_copilot_openai_proxy/session_helpers.py": "08a8d296bebfe9ee6b47c15de8f8b73e33ebe158e07cae5fe0cff3d4517006dc",
+        "src/m365_copilot_openai_proxy/session_store.py": "38434c7cf16c14ed4270d2434ce4f9b0574704349b0c7aaaecbcc3a53dbdbf9b",
+        "src/m365_copilot_openai_proxy/sse_stream.py": "8fa609dc1faabd10f1e97391f0ac4caf12604f5a649073052980ea9411798a9d",
+        "src/m365_copilot_openai_proxy/state_init.py": "d6f0c636ad0cfdd1ec07ed323cdc11a354570f4c226f103254238b9b9fdbfda4",
+        "src/m365_copilot_openai_proxy/stop_sequences.py": "da66557dd3d99f7bc2f68bab9414cd8ebac054ff2e953dec5a126ac26bf82e26",
+        "src/m365_copilot_openai_proxy/stream_guard.py": "b7f719dfa87fcec49341e009fbecdae07ea0de36bf5549f7f64ceb75d8337f21",
+        "src/m365_copilot_openai_proxy/studio_diagnostics.py": "1e2699223bb03ebfbc394a16e28d593f46376b77646590976bf981be5d514227",
+        "src/m365_copilot_openai_proxy/studio_planner.py": "bb1d2d355613ea69568882d5dea4c3e277c145624820cddc5b74b026d5233a4f",
+        "src/m365_copilot_openai_proxy/substrate_client.py": "8d3eae6c637b4af5559ed2d617911812a3ceda21cb94e0b0d35c7eb208056650",
+        "src/m365_copilot_openai_proxy/substrate_parse.py": "3c7b5f09ecedae8220258593f7884e208ad74e9a24ed95b2801389e88ec3d0ee",
+        "src/m365_copilot_openai_proxy/substrate_upload.py": "02e37c31bbd3fb55582a536a606239a1470cc63172fbbb38c9306b51f6f16dbd",
+        "src/m365_copilot_openai_proxy/templates.py": "9a6d693a51b9f9c63527d9ab10c61cd37e443ffe3fc653d2bd8345202356eb2c",
+        "src/m365_copilot_openai_proxy/template_admin.py": "4b9558b50fde22bce6fedf9a0e4700dc769756a602dcd818d791306ef99bf04f",
+        "src/m365_copilot_openai_proxy/template_admin_accounts.py": "bba2e9ac2e18b1babbf514a4a6d586e7723b502ddd998631e38dfefa21ee7ef1",
+        "src/m365_copilot_openai_proxy/template_admin_css.py": "496396de794d23cf771993f821c5d710f56a64d88cf6eafb6f3876e45b692c0d",
+        "src/m365_copilot_openai_proxy/template_admin_dashboard.py": "72a0fd9a11128d138a30bb677f800df950beca8d4d3cbd9df0ddba0f25312655",
+        "src/m365_copilot_openai_proxy/template_admin_i18n.py": "4de0cd6a6ff8f8dd7a02ae3c14e26adbed0c390dfc44f5de41b9bcfb148bf6b8",
+        "src/m365_copilot_openai_proxy/template_admin_keys.py": "81d1cea5534d7f4f5496825c2bc3a969b58f2769cffbf0ba8b471d7efdbbef7d",
+        "src/m365_copilot_openai_proxy/template_admin_modeltest.py": "bd5fd47d2b5420f9d54d6f0d5498934742d494130724b64afc316536e1a75a46",
+        "src/m365_copilot_openai_proxy/template_admin_personalization.py": "db2f7052fc23b8c1836989cdc251bf5858dc525e1f07e59b52c4e17a5c259950",
+        "src/m365_copilot_openai_proxy/template_admin_sessions.py": "f864b5c90250e922d71f3079694dde3a15d62274209c1e2eeed9d3f7ffaf1de6",
+        "src/m365_copilot_openai_proxy/template_admin_settings_js.py": "919931d43788f8dcb536a05a9c319ce7e9064bb8dcdad868f82c7bbbc52d7ff8",
+        "src/m365_copilot_openai_proxy/template_admin_shell.py": "9e9351ff6c044ecf5e74e575d52010a2bd286a3c93794ebaefb57fcb9aec43f9",
+        "src/m365_copilot_openai_proxy/template_admin_tables.py": "ce50f2420e011cb833fed172fc17b66e40664e3bfb5ada2b4b14f502057c3bf2",
+        "src/m365_copilot_openai_proxy/template_assets.py": "353eab236ba43cfef6eba29fc16b9514364dac9027141702514b874050df76c7",
+        "src/m365_copilot_openai_proxy/template_login.py": "dc39421d10de4e9ec98f256de1e62ee6f05d6cbaf986780bf86c94bbea237200",
+        "src/m365_copilot_openai_proxy/template_pkce.py": "3227aed8dba4db858d36b976eeafa0228a1093acc0f95ba07725655fc3bf9cb6",
+        "src/m365_copilot_openai_proxy/template_user.py": "b856001679df7562c9fc8f076d9882f6d257c2f17045d4d2fc808487b99aefa8",
+        "src/m365_copilot_openai_proxy/template_user_account_js.py": "5634124f92aa9fc734d127ee6ecb44e7247e67282d3a59f6eba4db7ddff5a987",
+        "src/m365_copilot_openai_proxy/template_user_config_js.py": "12ac56218c7ab87f8238f5e61361c1a7ef5ac9b7efe5fbcb907489886f241df6",
+        "src/m365_copilot_openai_proxy/template_user_i18n.py": "138dcf7e96acf8e383ec601984e5c7f018e4c3c97b84e5ac831fc06677f76af5",
+        "src/m365_copilot_openai_proxy/template_user_sessions_js.py": "2fcb64b345be946dd2830c8d272e1c98eb341618dcb66a7802c8000821dbbf7a",
+        "src/m365_copilot_openai_proxy/token_store.py": "b6b64f77e58b6f60741f558519c349461e82e8d8bd52fc33d613442a2fbd5b54",
+        "src/m365_copilot_openai_proxy/tone_options.py": "5262e6cbfa65935920477816d5dd9de9d15ec1468b8c292c37886f5d32edb881",
+        "src/m365_copilot_openai_proxy/tone_resolver.py": "bfa6273c60c169419b2ac99cedea5b777acb6f2c56e24ce889dcd65f8bff0738",
+        "src/m365_copilot_openai_proxy/tool_call_parser.py": "a7b4985f1623d3d1d1bcba0e1b6aa0a7481fc57bad779335625178aa11dc4151",
+        "src/m365_copilot_openai_proxy/tool_hygiene.py": "25b74d131c34efe48594922ed8796c22afb637d98dda1fb8c6b88ddfd8a5252d",
+        "src/m365_copilot_openai_proxy/tool_router.py": "61f2d9f78bf87ae88381f3e711b7d1775356bccc311c6e6346061948172f966c",
+        "src/m365_copilot_openai_proxy/translator.py": "5a78c2b41c2dcde5e5b53249160a90375cd6ac669ed6326eda324a540c4c8f37",
+        "get_token.user.js": "ce9795ddc0f660cb4c4dae82c89ab778a0e8021c1888b668b9fb7ff7e4848f76"
+      },
+      "new_image_built_or_published": false,
+      "host_files_modified": false
+    },
+    "regression": {
+      "command": "uv run --extra dev pytest -q --tb=line --show-capture=no",
+      "passed": 2577,
+      "skipped": 3,
+      "warnings": 11,
+      "seconds": 106.9,
+      "quota_regressions_failed_before": 7,
+      "quota_lifecycle_targeted_after": {
+        "passed": 80,
+        "warnings": 1
+      }
+    },
+    "mandatory_live_matrix": [
+      {
+        "item": 1,
+        "name": "M365 direct/native",
+        "result": "pass_direct_text",
+        "evidence": {
+          "status": 200,
+          "marker": "NATIVE-6861ff363b",
+          "marker_preserved": true,
+          "error": null,
+          "text": "NATIVE-6861ff363b"
+        },
+        "native_tool_probe": "Magic reported unsupported and emitted no tool call; retained as an unsuccessful additional probe"
+      },
+      {
+        "item": 2,
+        "name": "Router planning/tool",
+        "result": "pass",
+        "evidence": "M365 and Personal Substrate Chat streaming read_file -> real file content -> terminal answer, exact generated marker preserved"
+      },
+      {
+        "item": 3,
+        "name": "Studio planning/tool",
+        "result": "blocked",
+        "evidence": {
+          "status": 200,
+          "exact_mos3_match": false
+        },
+        "blocker": "No exact published MOS3 match for configured agent. Actual Studio-requested turn ran Router; successful fallback is not Studio acceptance."
+      },
+      {
+        "item": 4,
+        "name": "Anthropic Messages API",
+        "result": "pass",
+        "evidence": "M365 and selected Personal Substrate streaming read_file tool loop passed"
+      },
+      {
+        "item": 5,
+        "name": "OpenAI Responses API",
+        "result": "pass_m365_personal_unstable",
+        "evidence": "M365 streaming tool loop passed. Personal first continuation lost expected marker; instrumented full rerun passed, first failure preserved."
+      },
+      {
+        "item": 6,
+        "name": "Microsoft 365 Personal/Consumer including Substrate JWE",
+        "result": "partial",
+        "selected_personal_substrate": "Recovered selected copilot.com login cookies/storage, captured real Substrate WebSocket JWE, executed original userscript with a GM transport bridge to push it; original key/account binding preserved; native request and all three streaming router tool loops passed at least once.",
+        "personal_native": {
+          "status": 200,
+          "marker": "PERSONAL-cd52627e90",
+          "marker_preserved": true,
+          "error": null,
+          "text": "PERSONAL-cd52627e90"
+        },
+        "consumer_chatai": "Distinct identity; genuine upstream 429 remained until 2026-10-01T11:52:13Z. No substitution of one identity/protocol for another."
+      }
+    ],
+    "full_acceptance_passed": false,
+    "streaming_tool_matrix": {
+      "results": [
+        {
+          "account_id": "acct_2eed3918214f",
+          "protocol": "chat/completions",
+          "requested_planner": "native",
+          "stream": true,
+          "passed": false,
+          "first_status": 200,
+          "first_terminal": true,
+          "reasoning_chars": 0,
+          "first_seconds": 20.49,
+          "actual_planner": "unsupported",
+          "tool_valid": false,
+          "error_type": null
+        },
+        {
+          "account_id": "acct_2eed3918214f",
+          "protocol": "chat/completions",
+          "requested_planner": "router",
+          "stream": true,
+          "passed": true,
+          "first_status": 200,
+          "first_terminal": true,
+          "reasoning_chars": 0,
+          "first_seconds": 15.4,
+          "actual_planner": "router",
+          "tool_valid": true,
+          "tool_executed": "read_file",
+          "final_status": 200,
+          "final_terminal": true,
+          "final_seconds": 9.27,
+          "marker_preserved": true,
+          "final_calls": 0,
+          "final_reasoning_chars": 0
+        },
+        {
+          "account_id": "acct_2eed3918214f",
+          "protocol": "messages",
+          "requested_planner": "router",
+          "stream": true,
+          "passed": true,
+          "first_status": 200,
+          "first_terminal": true,
+          "reasoning_chars": 0,
+          "first_seconds": 12.16,
+          "actual_planner": "router",
+          "tool_valid": true,
+          "tool_executed": "read_file",
+          "final_status": 200,
+          "final_terminal": true,
+          "final_seconds": 7.83,
+          "marker_preserved": true,
+          "final_calls": 0,
+          "final_reasoning_chars": 0
+        },
+        {
+          "account_id": "acct_2eed3918214f",
+          "protocol": "responses",
+          "requested_planner": "router",
+          "stream": true,
+          "passed": true,
+          "first_status": 200,
+          "first_terminal": true,
+          "reasoning_chars": 0,
+          "first_seconds": 21.13,
+          "actual_planner": "router",
+          "tool_valid": true,
+          "tool_executed": "read_file",
+          "final_status": 200,
+          "final_terminal": true,
+          "final_seconds": 7.29,
+          "marker_preserved": true,
+          "final_calls": 0,
+          "final_reasoning_chars": 0
+        },
+        {
+          "account_id": "acct_950e9a053977",
+          "protocol": "chat/completions",
+          "requested_planner": "native",
+          "stream": true,
+          "passed": false,
+          "first_status": 200,
+          "first_terminal": true,
+          "reasoning_chars": 0,
+          "first_seconds": 15.47,
+          "actual_planner": "unsupported",
+          "tool_valid": false,
+          "error_type": null
+        },
+        {
+          "account_id": "acct_950e9a053977",
+          "protocol": "chat/completions",
+          "requested_planner": "router",
+          "stream": true,
+          "passed": true,
+          "first_status": 200,
+          "first_terminal": true,
+          "reasoning_chars": 0,
+          "first_seconds": 6.12,
+          "actual_planner": "router",
+          "tool_valid": true,
+          "tool_executed": "read_file",
+          "final_status": 200,
+          "final_terminal": true,
+          "final_seconds": 6.77,
+          "marker_preserved": true,
+          "final_calls": 0,
+          "final_reasoning_chars": 0
+        },
+        {
+          "account_id": "acct_950e9a053977",
+          "protocol": "messages",
+          "requested_planner": "router",
+          "stream": true,
+          "passed": true,
+          "first_status": 200,
+          "first_terminal": true,
+          "reasoning_chars": 0,
+          "first_seconds": 7.36,
+          "actual_planner": "router",
+          "tool_valid": true,
+          "tool_executed": "read_file",
+          "final_status": 200,
+          "final_terminal": true,
+          "final_seconds": 8.91,
+          "marker_preserved": true,
+          "final_calls": 0,
+          "final_reasoning_chars": 0
+        },
+        {
+          "account_id": "acct_950e9a053977",
+          "protocol": "responses",
+          "requested_planner": "router",
+          "stream": true,
+          "passed": false,
+          "first_status": 200,
+          "first_terminal": true,
+          "reasoning_chars": 0,
+          "first_seconds": 8.26,
+          "actual_planner": "router",
+          "tool_valid": true,
+          "tool_executed": "read_file",
+          "final_status": 200,
+          "final_terminal": true,
+          "final_seconds": 7.6,
+          "marker_preserved": false,
+          "final_calls": 0,
+          "final_reasoning_chars": 0
+        },
+        {
+          "account_id": "acct_2eed3918214f",
+          "protocol": "chat/completions",
+          "requested_planner": "studio",
+          "stream": true,
+          "passed": false,
+          "first_status": 200,
+          "first_terminal": true,
+          "reasoning_chars": 0,
+          "first_seconds": 18.82,
+          "actual_planner": "router",
+          "tool_valid": true,
+          "tool_executed": "read_file",
+          "final_status": 200,
+          "final_terminal": true,
+          "final_seconds": 8.61,
+          "marker_preserved": true,
+          "final_calls": 0,
+          "final_reasoning_chars": 0,
+          "blocker": "No ready Studio agent; actual planner was not Studio"
+        }
+      ],
+      "cleanup": [
+        {
+          "key_deleted": true,
+          "sessions_removed": 0
+        },
+        {
+          "key_deleted": true,
+          "sessions_removed": 0
+        },
+        {
+          "key_deleted": true,
+          "sessions_removed": 0
+        },
+        {
+          "key_deleted": true,
+          "sessions_removed": 0
+        },
+        {
+          "key_deleted": true,
+          "sessions_removed": 0
+        },
+        {
+          "key_deleted": true,
+          "sessions_removed": 0
+        },
+        {
+          "key_deleted": true,
+          "sessions_removed": 0
+        },
+        {
+          "key_deleted": true,
+          "sessions_removed": 0
+        },
+        {
+          "key_deleted": true,
+          "sessions_removed": 0
+        }
+      ],
+      "finished_at": 1790838162.0342746
+    },
+    "personal_responses_instrumented_rerun": [
+      {
+        "account_id": "acct_950e9a053977",
+        "protocol": "responses",
+        "requested_planner": "router",
+        "stream": true,
+        "passed": true,
+        "first_status": 200,
+        "first_terminal": true,
+        "reasoning_chars": 0,
+        "first_seconds": 7.89,
+        "actual_planner": "router",
+        "tool_valid": true,
+        "tool_executed": "read_file",
+        "final_status": 200,
+        "final_terminal": true,
+        "final_seconds": 7.12,
+        "marker_preserved": true,
+        "final_calls": 0,
+        "final_reasoning_chars": 0
+      }
+    ],
+    "reasoning_summaries": [
+      {
+        "kind": "reasoning_summary",
+        "protocol": "chat/completions",
+        "status": 200,
+        "terminal": true,
+        "reasoning_chars": 250,
+        "seconds": 19.6,
+        "summary_observed": true
+      },
+      {
+        "kind": "reasoning_summary",
+        "protocol": "messages",
+        "status": 200,
+        "terminal": true,
+        "reasoning_chars": 259,
+        "seconds": 13.83,
+        "summary_observed": true
+      },
+      {
+        "kind": "reasoning_summary",
+        "protocol": "responses",
+        "status": 200,
+        "terminal": true,
+        "reasoning_chars": 240,
+        "seconds": 17.17,
+        "summary_observed": true
+      }
+    ],
+    "disconnect_after_first_text_probe": {
+      "note": "All followups succeeded but inflight was already zero before close; not counted as proof of active-upstream cancellation.",
+      "results": [
+        {
+          "account_id": "acct_2eed3918214f",
+          "protocol": "chat/completions",
+          "passed": false,
+          "saw_text_delta": true,
+          "inflight_before": 0,
+          "inflight_after": 0,
+          "release_seconds": 0.002,
+          "followup_status": 200,
+          "followup_terminal": true,
+          "marker_preserved": true
+        },
+        {
+          "account_id": "acct_2eed3918214f",
+          "protocol": "messages",
+          "passed": false,
+          "saw_text_delta": true,
+          "inflight_before": 0,
+          "inflight_after": 0,
+          "release_seconds": 0.002,
+          "followup_status": 200,
+          "followup_terminal": true,
+          "marker_preserved": true
+        },
+        {
+          "account_id": "acct_2eed3918214f",
+          "protocol": "responses",
+          "passed": false,
+          "saw_text_delta": true,
+          "inflight_before": 0,
+          "inflight_after": 0,
+          "release_seconds": 0.002,
+          "followup_status": 200,
+          "followup_terminal": true,
+          "marker_preserved": true
+        },
+        {
+          "account_id": "acct_950e9a053977",
+          "protocol": "chat/completions",
+          "passed": false,
+          "saw_text_delta": true,
+          "inflight_before": 0,
+          "inflight_after": 0,
+          "release_seconds": 0.002,
+          "followup_status": 200,
+          "followup_terminal": true,
+          "marker_preserved": true
+        },
+        {
+          "account_id": "acct_950e9a053977",
+          "protocol": "messages",
+          "passed": false,
+          "saw_text_delta": true,
+          "inflight_before": 0,
+          "inflight_after": 0,
+          "release_seconds": 0.002,
+          "followup_status": 200,
+          "followup_terminal": true,
+          "marker_preserved": true
+        },
+        {
+          "account_id": "acct_950e9a053977",
+          "protocol": "responses",
+          "passed": false,
+          "saw_text_delta": true,
+          "inflight_before": 0,
+          "inflight_after": 0,
+          "release_seconds": 0.002,
+          "followup_status": 200,
+          "followup_terminal": true,
+          "marker_preserved": true
+        }
+      ]
+    },
+    "active_upstream_disconnect_and_followup": {
+      "results": [
+        {
+          "account_id": "acct_2eed3918214f",
+          "protocol": "chat/completions",
+          "disconnect_phase": "upstream_inflight_before_answer",
+          "passed": true,
+          "inflight_before": 1,
+          "inflight_after": 0,
+          "release_seconds": 0.058,
+          "followup_status": 200,
+          "followup_terminal": true,
+          "marker_preserved": true
+        },
+        {
+          "account_id": "acct_2eed3918214f",
+          "protocol": "messages",
+          "disconnect_phase": "upstream_inflight_before_answer",
+          "passed": true,
+          "inflight_before": 1,
+          "inflight_after": 0,
+          "release_seconds": 0.002,
+          "followup_status": 200,
+          "followup_terminal": true,
+          "marker_preserved": true
+        },
+        {
+          "account_id": "acct_2eed3918214f",
+          "protocol": "responses",
+          "disconnect_phase": "upstream_inflight_before_answer",
+          "passed": true,
+          "inflight_before": 1,
+          "inflight_after": 0,
+          "release_seconds": 0.002,
+          "followup_status": 200,
+          "followup_terminal": true,
+          "marker_preserved": true
+        },
+        {
+          "account_id": "acct_950e9a053977",
+          "protocol": "chat/completions",
+          "disconnect_phase": "upstream_inflight_before_answer",
+          "passed": true,
+          "inflight_before": 1,
+          "inflight_after": 0,
+          "release_seconds": 0.002,
+          "followup_status": 200,
+          "followup_terminal": true,
+          "marker_preserved": true
+        },
+        {
+          "account_id": "acct_950e9a053977",
+          "protocol": "messages",
+          "disconnect_phase": "upstream_inflight_before_answer",
+          "passed": true,
+          "inflight_before": 1,
+          "inflight_after": 0,
+          "release_seconds": 0.002,
+          "followup_status": 200,
+          "followup_terminal": true,
+          "marker_preserved": true
+        },
+        {
+          "account_id": "acct_950e9a053977",
+          "protocol": "responses",
+          "disconnect_phase": "upstream_inflight_before_answer",
+          "passed": true,
+          "inflight_before": 1,
+          "inflight_after": 0,
+          "release_seconds": 0.002,
+          "followup_status": 200,
+          "followup_terminal": true,
+          "marker_preserved": true
+        }
+      ],
+      "finished_at": 1790839757.9720154
+    },
+    "quota_live": {
+      "status": 429,
+      "error_type": "rate_limit_error",
+      "retry_after": "17490",
+      "account_status": 200,
+      "throttled_until_before": 1790855533.0,
+      "throttled_until": 1790855533.0,
+      "throttled_mode": "chat",
+      "throttled_at": 1790838043.5137854,
+      "wording_is_request_scoped": true
+    },
+    "quota_ui": {
+      "admin_zh": [
+        {
+          "text": "最近请求受限 · chat",
+          "title": "上游建议重试于: 26-10-01 19:52:13\n记录于: 26-10-01 15:00:43\n仅为最近一次请求的记录，不代表其他模式、网页或整个账号不可用。"
+        }
+      ],
+      "admin_en": [
+        {
+          "text": "Recent request throttled · chat",
+          "title": "Upstream retry hint: 26-10-01 19:52:13\nObserved at: 26-10-01 15:00:43\nObservation from one request, not proof that every mode or the website is unavailable."
+        }
+      ],
+      "user_zh": [
+        {
+          "text": "最近请求受限 · chat · 04:37:49",
+          "title": "上游建议重试于: 2026/10/1 19:52:13\n记录于: 2026/10/1 15:00:43\n仅为最近一次请求的记录，不代表其他模式、网页或整个账号不可用。"
+        }
+      ],
+      "visual_screenshots_observed": true
+    },
+    "identity_comparison": {
+      "selected_subject_known": true,
+      "consumer_subject_known": true,
+      "match": false
+    },
+    "final_state": {
+      "observed_at": 1790839891.6407163,
+      "stats_status": 200,
+      "inflight": {},
+      "temporary_keys": [],
+      "selected_account": {
+        "key_id": "key_8a7e0e6c55d4",
+        "account_id": "acct_950e9a053977",
+        "provider": "m365",
+        "token_parts": 5
+      },
+      "consumer_observation": {
+        "throttled_until": 1790855533.0,
+        "throttled_mode": "chat",
+        "throttled_at": 1790838043.5137854
+      }
+    },
+    "limitations": [
+      "Studio prerequisite unavailable",
+      "Consumer ChatAI quota blocked final combined recovery scenarios",
+      "Personal Responses first failed continuation remains unexplained; diagnostic rerun passed",
+      "No image release; source overlay lost if container is recreated"
+    ]
+  },
+  "deployment": {
+    "container": "ciallo-ms365-proxy-multi",
+    "source_files_updated": 18,
+    "source_files": [
+      "src/m365_copilot_openai_proxy/account_concurrency.py",
+      "src/m365_copilot_openai_proxy/consumer_adapter.py",
+      "src/m365_copilot_openai_proxy/consumer_client.py",
+      "src/m365_copilot_openai_proxy/error_handlers.py",
+      "src/m365_copilot_openai_proxy/history_index.py",
+      "src/m365_copilot_openai_proxy/reasoning.py",
+      "src/m365_copilot_openai_proxy/reasoning_stream.py",
+      "src/m365_copilot_openai_proxy/response_helpers.py",
+      "src/m365_copilot_openai_proxy/routes_api_chat.py",
+      "src/m365_copilot_openai_proxy/routes_api_common.py",
+      "src/m365_copilot_openai_proxy/routes_api_messages.py",
+      "src/m365_copilot_openai_proxy/routes_api_responses.py",
+      "src/m365_copilot_openai_proxy/sse_stream.py",
+      "src/m365_copilot_openai_proxy/studio_planner.py",
+      "src/m365_copilot_openai_proxy/substrate_client.py",
+      "src/m365_copilot_openai_proxy/substrate_parse.py",
+      "src/m365_copilot_openai_proxy/tool_router.py",
+      "src/m365_copilot_openai_proxy/translator.py"
+    ],
+    "source_sha256_by_file": {
+      "src/m365_copilot_openai_proxy/account_concurrency.py": "6dac5237fbe9bf3dba43c4167ab66d3ae2bd8e7dca0c6de0d734db4c6ec0ca5a",
+      "src/m365_copilot_openai_proxy/consumer_adapter.py": "83ab57f85badb431ed73ffc15659633b595f6d6bb10a6c00d8942e20b4b55e8c",
+      "src/m365_copilot_openai_proxy/consumer_client.py": "5cf1f5c28166f70ad754301b71dfadacc11303a1a229309c20d5999a1c654695",
+      "src/m365_copilot_openai_proxy/error_handlers.py": "e52683528626f3c0be3211e9572b19dbfe795a53d07bfad54e28790c335a1e8b",
+      "src/m365_copilot_openai_proxy/history_index.py": "00dcf12599e14e6899e6a00439f12da295ec9483b2f00dc9cafde320c998a154",
+      "src/m365_copilot_openai_proxy/reasoning.py": "0f50fbad6ec1fa589167651f77025b231acf28ba984c57e445c087de47f26ad8",
+      "src/m365_copilot_openai_proxy/reasoning_stream.py": "82bd2293c7d1b156aa3ade6fb41137ac4fd2a2a743f8102cd7d771ba86114e41",
+      "src/m365_copilot_openai_proxy/response_helpers.py": "a95df826a8af04781acb3e1d390907849bd22ded27cf0799f9496e87800a7c3d",
+      "src/m365_copilot_openai_proxy/routes_api_chat.py": "06cedd0b0bafd3475ef4def1c3862763c459482c8aa6467af487e43c85a1c60e",
+      "src/m365_copilot_openai_proxy/routes_api_common.py": "719799289b6e0263100247a2fb0097551f6639b757fd4e9062dec21fef323b84",
+      "src/m365_copilot_openai_proxy/routes_api_messages.py": "064714123f1b6788306a869522df86dee5f294905b317390fda4cf98eb7e693e",
+      "src/m365_copilot_openai_proxy/routes_api_responses.py": "38e3fabc7777a93a788c581ab7177a819f21f83bd6013108d4e92235e7fd1d5b",
+      "src/m365_copilot_openai_proxy/sse_stream.py": "17fe61ea4ebb4eb499f4ba8bd293f330c9f04d82447e5a5bf194ceec2b62edf5",
+      "src/m365_copilot_openai_proxy/studio_planner.py": "4ec9ab6f575c87a7f8e41d8955ff0a91d1f1fe34253c87f583ca470070d94a19",
+      "src/m365_copilot_openai_proxy/substrate_client.py": "901bea7e3e6f973150c882e018c48950b0f32f7846fa9d3292d000f6543413e1",
+      "src/m365_copilot_openai_proxy/substrate_parse.py": "a92f118f0826fe59ac776a153cead130ec22456b2a77cc43bda0e6af22c4f65f",
+      "src/m365_copilot_openai_proxy/tool_router.py": "c96e5df01dde173777e8b704ec86c86906f455e5d19b869dba5e21777ea7ca93",
+      "src/m365_copilot_openai_proxy/translator.py": "e3f7db206741b3cba84322cbf4966f967cb7fa9e3b21d4d4f64b150fd733f7e8"
+    },
+    "backup": "/tmp/upstream07-ade-20260930-113358",
+    "rollback_archive_present": true,
+    "method": "Source-only overlay streamed over SSH to docker exec stdin, followed by a target-container restart; no host-side staging files.",
+    "new_image_built_or_published": false,
+    "persistence_note": "The source overlay survives container restarts, not replacement/recreation from the unmodified published image. No image was built or published by this change."
+  },
+  "regression": {
+    "full_suite": {
+      "command": "uv run --extra dev pytest -q --tb=line --show-capture=no",
+      "passed": 2244,
+      "skipped": 3,
+      "warnings": 11,
+      "seconds": 102.03,
+      "observed_in": "2026-09-30 implementation session"
+    },
+    "red_green_evidence": {
+      "interleaved_summary_and_close_boundaries_failed_before": 8,
+      "summary_suite_passed_after": 31,
+      "proxy_and_close_code_boundaries_failed_before": 9,
+      "combined_review_regression_passed_after": 127
+    },
+    "targeted_20261001": {
+      "command": "uv run --extra dev pytest -q --tb=line --show-capture=no tests/test_reasoning_output.py tests/test_network_errors.py tests/test_studio_planner.py tests/test_studio_chat_planning.py tests/test_sse_stream.py tests/test_stream_guard.py",
+      "passed": 213,
+      "warnings": 7,
+      "seconds": 41.18
+    }
+  },
+  "environment_20261001": {
+    "observed_at": "2026-10-01T02:09:37.209173+00:00",
+    "health_status": 200,
+    "admin_status": 200,
+    "accounts": [
+      {
+        "provider": "consumer",
+        "token_status": {
+          "valid": true,
+          "expires_at": "2026-10-01T09:09:31+00:00",
+          "seconds_remaining": 25193
+        },
+        "studio_ready": false,
+        "m365_rt_present": false,
+        "m365_rt_disabled_reason": "",
+        "enabled_keys": 1
+      },
+      {
+        "provider": "m365",
+        "token_status": {
+          "valid": false,
+          "expires_at": "2026-09-30T20:40:33+00:00",
+          "seconds_remaining": 0
+        },
+        "studio_ready": false,
+        "m365_rt_present": true,
+        "m365_rt_disabled_reason": "",
+        "enabled_keys": 1
+      },
+      {
+        "provider": "m365",
+        "token_status": {
+          "valid": false,
+          "error": "No token",
+          "expires_at": null,
+          "seconds_remaining": 0
+        },
+        "studio_ready": false,
+        "m365_rt_present": false,
+        "m365_rt_disabled_reason": "",
+        "enabled_keys": 1
+      }
+    ],
+    "temporary_acceptance_keys_before_run": 0,
+    "service_owned_m365_refresh": {
+      "http_status": 200,
+      "refreshed": false,
+      "token_status": {
+        "valid": false,
+        "expires_at": "2026-09-30T20:40:33+00:00",
+        "seconds_remaining": 0
+      },
+      "studio_ready": false,
+      "seconds": 60.73
+    },
+    "m365_blocker": "No valid M365 token or ready Studio binding. The RT supplied at recovery start lacked verified client_id, authority, tenant_id and object_id; the service discarded it as unbound. Captured MSAL v3 entries were encrypted envelopes, not verifiable RT-to-client binding evidence. Cookie/profile recovery reached institutional SSO rather than an authenticated Copilot session.",
+    "m365_blocker_history": "The previous 2026-09-30 account snapshot failed RT redemption with AADSTS5000224. Account data has since changed; that old error is not assumed to describe the current account."
+  },
+  "live_baseline_20260930": {
+    "started_at": 1790768623.3782182,
+    "finished_at": 1790769134.1516244,
+    "checks": [
+      {
+        "name": "matrix_m365_direct",
+        "passed": false,
+        "status": 503,
+        "terminal": false,
+        "marker": "CHECK-f3f4486ae8",
+        "reasoning_chars": 0,
+        "seconds": 61.567,
+        "failure_kind": "m365_refresh_error_before_provider_invocation"
+      },
+      {
+        "name": "matrix_native_chat/completions_tool_loop",
+        "passed": false,
+        "first_status": 503,
+        "actual_mode": null,
+        "tool_valid": false,
+        "first_terminal": false,
+        "structure": true,
+        "failure_kind": "m365_refresh_error_before_provider_invocation"
+      },
+      {
+        "name": "matrix_router_chat/completions_tool_loop",
+        "passed": false,
+        "first_status": 503,
+        "actual_mode": null,
+        "tool_valid": false,
+        "first_terminal": false,
+        "structure": true,
+        "failure_kind": "m365_refresh_error_before_provider_invocation"
+      },
+      {
+        "name": "matrix_studio_chat/completions_tool_loop",
+        "passed": false,
+        "first_status": 503,
+        "actual_mode": null,
+        "tool_valid": false,
+        "first_terminal": false,
+        "structure": true,
+        "failure_kind": "m365_refresh_error_before_provider_invocation"
+      },
+      {
+        "name": "matrix_studio_messages_tool_loop",
+        "passed": false,
+        "first_status": 503,
+        "actual_mode": null,
+        "tool_valid": false,
+        "first_terminal": false,
+        "structure": true,
+        "failure_kind": "m365_refresh_error_before_provider_invocation"
+      },
+      {
+        "name": "matrix_studio_responses_tool_loop",
+        "passed": false,
+        "first_status": 503,
+        "actual_mode": null,
+        "tool_valid": false,
+        "first_terminal": false,
+        "structure": true,
+        "failure_kind": "m365_refresh_error_before_provider_invocation"
+      },
+      {
+        "name": "summary_chat/completions_stream",
+        "passed": false,
+        "status": 503,
+        "terminal": false,
+        "structure": true,
+        "marker": "SUMMARY-3d79cef8a5",
+        "marker_preserved": false,
+        "reasoning_chars": 0,
+        "seconds": 14.18,
+        "failure_kind": "m365_refresh_error_before_provider_invocation"
+      },
+      {
+        "name": "summary_chat/completions_json",
+        "passed": false,
+        "status": 503,
+        "terminal": false,
+        "structure": true,
+        "marker": "SUMMARY-f62cd0d674",
+        "marker_preserved": false,
+        "reasoning_chars": 0,
+        "seconds": 61.128,
+        "failure_kind": "m365_refresh_error_before_provider_invocation"
+      },
+      {
+        "name": "summary_messages_stream",
+        "passed": false,
+        "status": 503,
+        "terminal": false,
+        "structure": true,
+        "marker": "SUMMARY-1f2a2a5e1b",
+        "marker_preserved": false,
+        "reasoning_chars": 0,
+        "seconds": 14.188,
+        "failure_kind": "m365_refresh_error_before_provider_invocation"
+      },
+      {
+        "name": "summary_messages_json",
+        "passed": false,
+        "status": 503,
+        "terminal": false,
+        "structure": true,
+        "marker": "SUMMARY-b791d89356",
+        "marker_preserved": false,
+        "reasoning_chars": 0,
+        "seconds": 61.406,
+        "failure_kind": "m365_refresh_error_before_provider_invocation"
+      },
+      {
+        "name": "summary_responses_stream",
+        "passed": false,
+        "status": 503,
+        "terminal": false,
+        "structure": true,
+        "marker": "SUMMARY-5665d6d38d",
+        "marker_preserved": false,
+        "reasoning_chars": 0,
+        "seconds": 14.421,
+        "failure_kind": "m365_refresh_error_before_provider_invocation"
+      },
+      {
+        "name": "summary_responses_json",
+        "passed": false,
+        "status": 503,
+        "terminal": false,
+        "structure": true,
+        "marker": "SUMMARY-d1fd01cbed",
+        "marker_preserved": false,
+        "reasoning_chars": 0,
+        "seconds": 14.111,
+        "failure_kind": "m365_refresh_error_before_provider_invocation"
+      },
+      {
+        "name": "matrix_consumer_direct",
+        "passed": true,
+        "status": 200,
+        "terminal": true,
+        "marker": "CHECK-f65b6f380c",
+        "reasoning_chars": 0,
+        "seconds": 10.405
+      }
+    ]
+  },
+  "deployed_network_faults_20260930": {
+    "fault": "Disposable Consumer account directed to an actually reserved, non-listening local TCP port. Real requests to the deployed /v1 APIs; not mocked route responses.",
+    "all_passed": true,
+    "checks": [
+      {
+        "name": "deployed_network_fault_chat/completions_stream=False_tools=False",
+        "passed": true,
+        "status": 503,
+        "codes": [
+          "network_error"
+        ],
+        "terminal": "",
+        "retry_after": null,
+        "fault": "reserved_non_listening_tcp_port",
+        "seconds": 0.009
+      },
+      {
+        "name": "deployed_network_fault_chat/completions_stream=True_tools=False",
+        "passed": true,
+        "status": 200,
+        "codes": [
+          "network_error"
+        ],
+        "terminal": "[DONE]",
+        "retry_after": null,
+        "fault": "reserved_non_listening_tcp_port",
+        "seconds": 0.009
+      },
+      {
+        "name": "deployed_network_fault_chat/completions_stream=True_tools=True",
+        "passed": true,
+        "status": 200,
+        "codes": [
+          "network_error"
+        ],
+        "terminal": "[DONE]",
+        "retry_after": null,
+        "fault": "reserved_non_listening_tcp_port",
+        "seconds": 0.011
+      },
+      {
+        "name": "deployed_network_fault_messages_stream=False_tools=False",
+        "passed": true,
+        "status": 503,
+        "codes": [
+          "network_error"
+        ],
+        "terminal": "",
+        "retry_after": null,
+        "fault": "reserved_non_listening_tcp_port",
+        "seconds": 0.009
+      },
+      {
+        "name": "deployed_network_fault_messages_stream=True_tools=False",
+        "passed": true,
+        "status": 200,
+        "codes": [
+          "network_error"
+        ],
+        "terminal": "error",
+        "retry_after": null,
+        "fault": "reserved_non_listening_tcp_port",
+        "seconds": 0.01
+      },
+      {
+        "name": "deployed_network_fault_messages_stream=True_tools=True",
+        "passed": true,
+        "status": 200,
+        "codes": [
+          "network_error"
+        ],
+        "terminal": "error",
+        "retry_after": null,
+        "fault": "reserved_non_listening_tcp_port",
+        "seconds": 0.01
+      },
+      {
+        "name": "deployed_network_fault_responses_stream=False_tools=False",
+        "passed": true,
+        "status": 503,
+        "codes": [
+          "network_error"
+        ],
+        "terminal": "",
+        "retry_after": null,
+        "fault": "reserved_non_listening_tcp_port",
+        "seconds": 0.009
+      },
+      {
+        "name": "deployed_network_fault_responses_stream=True_tools=False",
+        "passed": true,
+        "status": 200,
+        "codes": [
+          "network_error"
+        ],
+        "terminal": "response.failed",
+        "retry_after": null,
+        "fault": "reserved_non_listening_tcp_port",
+        "seconds": 0.009
+      },
+      {
+        "name": "deployed_network_fault_responses_stream=True_tools=True",
+        "passed": true,
+        "status": 200,
+        "codes": [
+          "network_error"
+        ],
+        "terminal": "response.failed",
+        "retry_after": null,
+        "fault": "reserved_non_listening_tcp_port",
+        "seconds": 0.012
+      },
+      {
+        "name": "fault_key_cleanup",
+        "passed": true,
+        "status": 200
+      },
+      {
+        "name": "fault_account_cleanup",
+        "passed": true,
+        "status": 200
+      },
+      {
+        "name": "original_account_proxy_configuration_unchanged",
+        "passed": true,
+        "original_accounts": 2,
+        "final_accounts": 2
+      }
+    ]
+  },
+  "consumer_followup_20260930": {
+    "checks": [
+      {
+        "name": "matrix_router_chat/completions_tool_loop",
+        "passed": false,
+        "first_status": 200,
+        "actual_mode": "router",
+        "tool_valid": true,
+        "tool_executed": "read_text",
+        "first_reasoning_chars": 0,
+        "router_internal": true,
+        "continuation_status": 200,
+        "final_terminal": true,
+        "structure": true,
+        "marker": "OBS-2ccdde61e102",
+        "value": "13626893",
+        "marker_preserved": false,
+        "final_calls": 0,
+        "final_reasoning_chars": 0,
+        "failure_kind": "consumer_upstream_quota",
+        "next_available_at": "2026-10-01T01:14:24+00:00"
+      },
+      {
+        "name": "matrix_router_messages_tool_loop",
+        "passed": false,
+        "first_status": 200,
+        "actual_mode": "router",
+        "tool_valid": false,
+        "first_terminal": true,
+        "structure": true,
+        "failure_kind": "consumer_upstream_quota",
+        "next_available_at": "2026-10-01T01:14:24+00:00"
+      },
+      {
+        "name": "matrix_router_responses_tool_loop",
+        "passed": false,
+        "first_status": 200,
+        "actual_mode": "router",
+        "tool_valid": false,
+        "first_terminal": false,
+        "structure": true,
+        "failure_kind": "consumer_upstream_quota",
+        "next_available_at": "2026-10-01T01:14:24+00:00"
+      },
+      {
+        "name": "consumer_disconnect_chat/completions",
+        "passed": false,
+        "saw_data": true,
+        "inflight_before_close": 1,
+        "inflight_after_close": 0,
+        "release_seconds": 0.002,
+        "continuation_status": 200,
+        "marker": "AFTER-CLOSE-469d27415d",
+        "marker_preserved": false,
+        "seconds": 5.859,
+        "failure_kind": "see_recorded_acceptance_result"
+      },
+      {
+        "name": "consumer_disconnect_messages",
+        "passed": false,
+        "saw_data": true,
+        "inflight_before_close": 1,
+        "inflight_after_close": 0,
+        "release_seconds": 0.002,
+        "continuation_status": 200,
+        "marker": "AFTER-CLOSE-238fe970c2",
+        "marker_preserved": false,
+        "seconds": 7.665,
+        "failure_kind": "see_recorded_acceptance_result"
+      },
+      {
+        "name": "consumer_disconnect_responses",
+        "passed": false,
+        "saw_data": true,
+        "inflight_before_close": 1,
+        "inflight_after_close": 0,
+        "release_seconds": 0.005,
+        "continuation_status": 200,
+        "marker": "AFTER-CLOSE-23f872ec46",
+        "marker_preserved": false,
+        "seconds": 3.331,
+        "failure_kind": "consumer_upstream_quota",
+        "next_available_at": "2026-10-01T01:14:24+00:00"
+      }
+    ]
+  },
+  "consumer_followup_20261001": {
+    "started_at": 1790820772.466641,
+    "finished_at": 1790820798.8973548,
+    "checks": [
+      {
+        "name": "matrix_router_chat/completions_tool_loop",
+        "passed": true,
+        "model": "copilot-reasoning",
+        "first_status": 200,
+        "actual_mode": "router",
+        "tool_valid": true,
+        "tool_executed": "read_text",
+        "first_reasoning_chars": 0,
+        "router_internal": true,
+        "continuation_status": 200,
+        "final_terminal": true,
+        "structure": true,
+        "marker": "OBS-1c7f5fd15594",
+        "value": "14486890",
+        "marker_preserved": true,
+        "final_calls": 0,
+        "final_reasoning_chars": 0
+      },
+      {
+        "name": "matrix_router_messages_tool_loop",
+        "passed": false,
+        "model": "copilot-reasoning",
+        "first_status": 200,
+        "actual_mode": "router",
+        "tool_valid": false,
+        "first_terminal": true,
+        "structure": true,
+        "failure_kind": "consumer_upstream_quota",
+        "next_available_at": "2026-10-01T02:24:07+00:00"
+      },
+      {
+        "name": "matrix_router_responses_tool_loop",
+        "passed": false,
+        "model": "copilot-reasoning",
+        "first_status": 200,
+        "actual_mode": "router",
+        "tool_valid": false,
+        "first_terminal": false,
+        "structure": true,
+        "failure_kind": "consumer_upstream_quota",
+        "next_available_at": "2026-10-01T02:24:07+00:00"
+      },
+      {
+        "name": "consumer_disconnect_chat/completions",
+        "passed": false,
+        "saw_data": true,
+        "inflight_before_close": 1,
+        "inflight_after_close": 0,
+        "release_seconds": 0.002,
+        "continuation_status": 200,
+        "marker": "AFTER-CLOSE-5e02be49ea",
+        "marker_preserved": false,
+        "seconds": 2.412,
+        "failure_kind": "see_recorded_acceptance_result"
+      },
+      {
+        "name": "consumer_disconnect_messages",
+        "passed": false,
+        "saw_data": true,
+        "inflight_before_close": 1,
+        "inflight_after_close": 0,
+        "release_seconds": 0.002,
+        "continuation_status": 200,
+        "marker": "AFTER-CLOSE-b792776be8",
+        "marker_preserved": false,
+        "seconds": 2.423,
+        "failure_kind": "see_recorded_acceptance_result"
+      },
+      {
+        "name": "consumer_disconnect_responses",
+        "passed": false,
+        "saw_data": true,
+        "inflight_before_close": 1,
+        "inflight_after_close": 0,
+        "release_seconds": 0.003,
+        "continuation_status": 200,
+        "marker": "AFTER-CLOSE-96596f9a5b",
+        "marker_preserved": false,
+        "seconds": 1.928,
+        "failure_kind": "consumer_upstream_conversation_http_415"
+      }
+    ]
+  },
+  "consumer_after_first_reset_20261001": {
+    "started_at": 1790820978.1678987,
+    "finished_at": 1790821462.8699756,
+    "advertised_reset_at": "2026-10-01T02:24:07+00:00",
+    "checks": [
+      {
+        "name": "matrix_router_messages_tool_loop",
+        "passed": true,
+        "first_status": 200,
+        "actual_mode": "router",
+        "tool_valid": true,
+        "tool_executed": "read_text",
+        "first_reasoning_chars": 0,
+        "router_internal": true,
+        "continuation_status": 200,
+        "final_terminal": true,
+        "structure": true,
+        "marker": "OBS-2808fb9c7745",
+        "value": "10558552",
+        "marker_preserved": true,
+        "final_calls": 0,
+        "final_reasoning_chars": 0,
+        "model": "copilot-reasoning"
+      },
+      {
+        "name": "matrix_router_responses_tool_loop",
+        "passed": false,
+        "first_status": 200,
+        "actual_mode": "router",
+        "tool_valid": false,
+        "first_terminal": false,
+        "structure": true,
+        "model": "copilot-reasoning",
+        "failure_kind": "consumer_upstream_quota",
+        "next_available_at": "2026-10-01T02:30:32+00:00"
+      }
+    ]
+  },
+  "consumer_after_second_reset_20261001": {
+    "started_at": 1790821541.2714784,
+    "finished_at": 1790821842.457262,
+    "advertised_reset_at": "2026-10-01T02:30:32+00:00",
+    "checks": [
+      {
+        "name": "matrix_router_responses_tool_loop",
+        "passed": true,
+        "first_status": 200,
+        "actual_mode": "router",
+        "tool_valid": true,
+        "tool_executed": "read_text",
+        "first_reasoning_chars": 0,
+        "router_internal": true,
+        "continuation_status": 200,
+        "final_terminal": true,
+        "structure": true,
+        "marker": "OBS-64cee4ee52fd",
+        "value": "2364580",
+        "marker_preserved": true,
+        "final_calls": 0,
+        "final_reasoning_chars": 0,
+        "model": "copilot-reasoning"
+      }
+    ]
+  },
+  "consumer_after_reset_20261001": {
+    "started_at": 1790820978.1678987,
+    "finished_at": 1790821462.8699756,
+    "advertised_reset_at": "2026-10-01T02:24:07+00:00",
+    "checks": [
+      {
+        "name": "matrix_router_messages_tool_loop",
+        "passed": true,
+        "first_status": 200,
+        "actual_mode": "router",
+        "tool_valid": true,
+        "tool_executed": "read_text",
+        "first_reasoning_chars": 0,
+        "router_internal": true,
+        "continuation_status": 200,
+        "final_terminal": true,
+        "structure": true,
+        "marker": "OBS-2808fb9c7745",
+        "value": "10558552",
+        "marker_preserved": true,
+        "final_calls": 0,
+        "final_reasoning_chars": 0,
+        "model": "copilot-reasoning"
+      },
+      {
+        "name": "matrix_router_responses_tool_loop",
+        "passed": false,
+        "first_status": 200,
+        "actual_mode": "router",
+        "tool_valid": false,
+        "first_terminal": false,
+        "structure": true,
+        "model": "copilot-reasoning",
+        "failure_kind": "consumer_upstream_quota",
+        "next_available_at": "2026-10-01T02:30:32+00:00"
+      }
+    ]
+  },
+  "mandatory_live_matrix": {
+    "items": [
+      {
+        "item": 1,
+        "name": "M365 direct/native",
+        "result": "blocked",
+        "provider": "m365",
+        "detail": "Earlier deployed calls returned 503 refresh_error. Current account prerequisites were checked without repeating the blocked provider calls: no valid M365 token and no ready Studio binding; service-owned refresh returned refreshed=false."
+      },
+      {
+        "item": 2,
+        "name": "Router planning/tool path",
+        "result": "blocked",
+        "provider": "m365",
+        "detail": "Earlier deployed calls returned 503 refresh_error. Current account prerequisites were checked without repeating the blocked provider calls: no valid M365 token and no ready Studio binding; service-owned refresh returned refreshed=false."
+      },
+      {
+        "item": 3,
+        "name": "Studio planning/tool path",
+        "result": "blocked",
+        "provider": "m365",
+        "detail": "Earlier deployed calls returned 503 refresh_error. Current account prerequisites were checked without repeating the blocked provider calls: no valid M365 token and no ready Studio binding; service-owned refresh returned refreshed=false."
+      },
+      {
+        "item": 4,
+        "name": "Anthropic Messages API (Claude Code-compatible protocol)",
+        "result": "partial",
+        "consumer_tool_loop": {
+          "name": "matrix_router_messages_tool_loop",
+          "passed": true,
+          "first_status": 200,
+          "actual_mode": "router",
+          "tool_valid": true,
+          "tool_executed": "read_text",
+          "first_reasoning_chars": 0,
+          "router_internal": true,
+          "continuation_status": 200,
+          "final_terminal": true,
+          "structure": true,
+          "marker": "OBS-2808fb9c7745",
+          "value": "10558552",
+          "marker_preserved": true,
+          "final_calls": 0,
+          "final_reasoning_chars": 0,
+          "model": "copilot-reasoning"
+        },
+        "m365_result": "blocked",
+        "detail": "Consumer API-level tool loop passed; M365 summary/Studio behavior remains unverified."
+      },
+      {
+        "item": 5,
+        "name": "OpenAI Responses API (Codex-compatible protocol)",
+        "result": "partial",
+        "consumer_tool_loop": {
+          "name": "matrix_router_responses_tool_loop",
+          "passed": true,
+          "first_status": 200,
+          "actual_mode": "router",
+          "tool_valid": true,
+          "tool_executed": "read_text",
+          "first_reasoning_chars": 0,
+          "router_internal": true,
+          "continuation_status": 200,
+          "final_terminal": true,
+          "structure": true,
+          "marker": "OBS-64cee4ee52fd",
+          "value": "2364580",
+          "marker_preserved": true,
+          "final_calls": 0,
+          "final_reasoning_chars": 0,
+          "model": "copilot-reasoning"
+        },
+        "m365_result": "blocked",
+        "detail": "Consumer Responses API-level tool loop passed after the next advertised quota reset; M365 summary/Studio behavior remains unverified."
+      },
+      {
+        "item": 6,
+        "name": "Microsoft 365 Personal/Consumer provider",
+        "result": "partial",
+        "direct_stream_20260930": {
+          "name": "matrix_consumer_direct",
+          "passed": true,
+          "status": 200,
+          "terminal": true,
+          "marker": "CHECK-f65b6f380c",
+          "reasoning_chars": 0,
+          "seconds": 10.405
+        },
+        "chat_tool_loop_20261001": {
+          "name": "matrix_router_chat/completions_tool_loop",
+          "passed": true,
+          "model": "copilot-reasoning",
+          "first_status": 200,
+          "actual_mode": "router",
+          "tool_valid": true,
+          "tool_executed": "read_text",
+          "first_reasoning_chars": 0,
+          "router_internal": true,
+          "continuation_status": 200,
+          "final_terminal": true,
+          "structure": true,
+          "marker": "OBS-1c7f5fd15594",
+          "value": "14486890",
+          "marker_preserved": true,
+          "final_calls": 0,
+          "final_reasoning_chars": 0
+        },
+        "disconnect_checks": [
+          {
+            "protocol": "chat/completions",
+            "inflight_before_close": 1,
+            "inflight_after_close": 0,
+            "release_seconds": 0.002,
+            "resource_release_observed": true,
+            "combined_close_and_followup_passed": false,
+            "followup_failure": "see_recorded_acceptance_result"
+          },
+          {
+            "protocol": "messages",
+            "inflight_before_close": 1,
+            "inflight_after_close": 0,
+            "release_seconds": 0.002,
+            "resource_release_observed": true,
+            "combined_close_and_followup_passed": false,
+            "followup_failure": "see_recorded_acceptance_result"
+          },
+          {
+            "protocol": "responses",
+            "inflight_before_close": 1,
+            "inflight_after_close": 0,
+            "release_seconds": 0.003,
+            "resource_release_observed": true,
+            "combined_close_and_followup_passed": false,
+            "followup_failure": "consumer_upstream_conversation_http_415"
+          }
+        ],
+        "detail": "Streaming text and a real Chat Read-tool loop passed. Resource release after client disconnect was observed on all three APIs; the original followup responses were blocked by quota/HTTP 415, so combined disconnect-and-followup checks are not relabeled as passed.",
+        "latest_disconnect_followup_attempt": {
+          "started_at": 1790822008.1076336,
+          "finished_at": 1790822010.5550404,
+          "checks": [
+            {
+              "name": "consumer_disconnect_chat/completions",
+              "passed": false,
+              "saw_data": true,
+              "inflight_before_close": 1,
+              "inflight_after_close": 0,
+              "release_seconds": 0.003,
+              "continuation_status": 200,
+              "final_terminal": true,
+              "marker": "AFTER-CLOSE-2a81d35607",
+              "marker_preserved": false,
+              "seconds": 2.406,
+              "failure_kind": "see_recorded_acceptance_result"
+            },
+            {
+              "name": "consumer_disconnect_messages",
+              "passed": false,
+              "blocker": "Consumer quota until 2026-10-01T11:52:13+00:00",
+              "request_not_sent": true
+            },
+            {
+              "name": "consumer_disconnect_responses",
+              "passed": false,
+              "blocker": "Consumer quota until 2026-10-01T11:52:13+00:00",
+              "request_not_sent": true
+            }
+          ],
+          "quota_until": "2026-10-01T11:52:13+00:00",
+          "detail": "The first followup was quota blocked. The probe stopped sending further protocol cases, rather than relabeling resource release as a successful combined close-and-followup check."
+        },
+        "all_three_consumer_tool_loops_passed": true
+      }
+    ],
+    "complete": false,
+    "note": "All six required items are listed. Consumer evidence is not substituted for unexercised M365/Studio reasoning-summary paths."
+  },
+  "feature_acceptance": [
+    {
+      "feature": "A: independent upstream reasoning-summary output",
+      "implementation": "implemented",
+      "regression": "passed",
+      "live_m365_summary": "blocked"
+    },
+    {
+      "feature": "D: typed transport failure mapping",
+      "implementation": "implemented",
+      "regression": "passed",
+      "deployed_network_fault_cases": {
+        "passed": 9,
+        "total": 9
+      }
+    },
+    {
+      "feature": "E: Studio fallback exception diagnostics",
+      "implementation": "implemented",
+      "regression": "passed",
+      "live_studio_failure": "blocked"
+    }
+  ],
+  "final_state": {
+    "observed_at": "2026-10-01T02:36:23.188128+00:00",
+    "health_status": 200,
+    "admin_status": 200,
+    "accounts": [
+      {
+        "provider": "consumer",
+        "token_status": {
+          "valid": true,
+          "expires_at": "2026-10-01T10:11:34+00:00",
+          "seconds_remaining": 27311
+        },
+        "studio_ready": false,
+        "m365_rt_present": false,
+        "m365_rt_disabled_reason": "",
+        "enabled_keys": 1
+      },
+      {
+        "provider": "m365",
+        "token_status": {
+          "valid": false,
+          "expires_at": "2026-09-30T20:40:33+00:00",
+          "seconds_remaining": 0
+        },
+        "studio_ready": false,
+        "m365_rt_present": false,
+        "m365_rt_disabled_reason": "unbound",
+        "enabled_keys": 1
+      },
+      {
+        "provider": "m365",
+        "token_status": {
+          "valid": false,
+          "error": "No token",
+          "expires_at": null,
+          "seconds_remaining": 0
+        },
+        "studio_ready": false,
+        "m365_rt_present": false,
+        "m365_rt_disabled_reason": "",
+        "enabled_keys": 1
+      }
+    ],
+    "active_accounts": 0,
+    "temporary_acceptance_keys": 0
+  },
+  "cleanup": {
+    "temporary_probe_scripts_removed": true,
+    "temporary_api_keys_remaining": 0,
+    "disposable_network_fault_account_removed": true,
+    "original_account_proxy_configuration_unchanged_during_fault_probe": true,
+    "temporary_probe_scripts_removed_count": 7
+  },
+  "consumer_final_disconnect_attempt_20261001": {
+    "started_at": 1790822008.1076336,
+    "finished_at": 1790822010.5550404,
+    "checks": [
+      {
+        "name": "consumer_disconnect_chat/completions",
+        "passed": false,
+        "saw_data": true,
+        "inflight_before_close": 1,
+        "inflight_after_close": 0,
+        "release_seconds": 0.003,
+        "continuation_status": 200,
+        "final_terminal": true,
+        "marker": "AFTER-CLOSE-2a81d35607",
+        "marker_preserved": false,
+        "seconds": 2.406,
+        "failure_kind": "see_recorded_acceptance_result"
+      },
+      {
+        "name": "consumer_disconnect_messages",
+        "passed": false,
+        "blocker": "Consumer quota until 2026-10-01T11:52:13+00:00",
+        "request_not_sent": true
+      },
+      {
+        "name": "consumer_disconnect_responses",
+        "passed": false,
+        "blocker": "Consumer quota until 2026-10-01T11:52:13+00:00",
+        "request_not_sent": true
+      }
+    ],
+    "quota_until": "2026-10-01T11:52:13+00:00",
+    "detail": "The first followup was quota blocked. The probe stopped sending further protocol cases, rather than relabeling resource release as a successful combined close-and-followup check."
+  },
+  "required_external_actions": [
+    {
+      "provider": "m365",
+      "action": "Complete a fresh interactive M365 sign-in/PKCE authorization, push valid credentials with verified binding, and provision/bind a Studio agent for the current AAD subject. Then run the blocked native/router/Studio and reasoning-summary acceptance cases."
+    },
+    {
+      "provider": "consumer",
+      "quota_resume_at": "2026-10-01T11:52:13+00:00",
+      "action": "Only the combined disconnect-and-normal-followup cases remain blocked by quota. Do not repeat the already-passed Chat, Messages, and Responses tool loops merely to count another pass."
+    }
+  ]
+}

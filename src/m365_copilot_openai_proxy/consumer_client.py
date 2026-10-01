@@ -21,6 +21,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timezone
 from urllib.parse import quote
 
+from curl_cffi.const import CurlECode
 from curl_cffi.curl import CurlError
 from curl_cffi.requests import (
     AsyncSession,
@@ -30,6 +31,9 @@ from curl_cffi.requests import (
     WebSocketTimeout,
 )
 from curl_cffi.requests.exceptions import RequestException
+from curl_cffi.requests.websockets import WsCloseCode
+
+from .sse_stream import closing_stream
 
 BASE_URL = "https://copilot.microsoft.com"
 CHAT_WEBSOCKET_URL = f"{BASE_URL.replace('https', 'wss')}/c/api/chat?api-version=2"
@@ -198,16 +202,11 @@ def _socket_death_note(
     if isinstance(exc, WebSocketClosed):
         stage = "after reply streaming started" if started else "without replying"
         return (
-            f"Copilot chat socket closed {stage}; last frame was "
+            f"Copilot chat socket closed {stage} (code {exc.code}); last frame was "
             f"{_frame_note(last_message)}.{_trace_suffix(trace)}"
         )
     stage = " after reply streaming started" if started else ""
     return f"Copilot chat socket failed{stage}: {exc}"
-
-
-# Stable wording shared by throttle diagnostics and tests. HTTP status mapping
-# uses the typed AccountThrottled exception rather than parsing this text.
-_THROTTLED_MARKER = "spent its message quota"
 
 
 class ConsumerCopilotError(RuntimeError):
@@ -220,6 +219,38 @@ class ClearanceRequired(ConsumerCopilotError):
 
 class RegionBlocked(ConsumerCopilotError):
     """The consumer backend refused this account or egress region."""
+
+
+class ConsumerNetworkError(ConsumerCopilotError):
+    """DNS, connection, TLS or stalled I/O prevented a complete upstream turn."""
+
+
+_NETWORK_CURL_CODES = frozenset({
+    CurlECode.COULDNT_RESOLVE_PROXY,
+    CurlECode.COULDNT_RESOLVE_HOST,
+    CurlECode.COULDNT_CONNECT,
+    CurlECode.PARTIAL_FILE,
+    CurlECode.OPERATION_TIMEDOUT,
+    CurlECode.SSL_CONNECT_ERROR,
+    CurlECode.GOT_NOTHING,
+    CurlECode.SEND_ERROR,
+    CurlECode.RECV_ERROR,
+    CurlECode.PEER_FAILED_VERIFICATION,
+    CurlECode.SSL_SHUTDOWN_FAILED,
+    CurlECode.NO_CONNECTION_AVAILABLE,
+    CurlECode.SSL_PINNEDPUBKEYNOTMATCH,
+    CurlECode.SSL_INVALIDCERTSTATUS,
+})
+
+
+def _transport_error(exc: CurlError, message: str) -> ConsumerCopilotError:
+    # Generic PROXY failures also include rejected credentials/negotiation;
+    # only explicit reachability codes are safe to label as network failures.
+    if isinstance(exc, WebSocketClosed):
+        network = exc.code == WsCloseCode.ABNORMAL_CLOSURE
+    else:
+        network = isinstance(exc, WebSocketTimeout) or exc.code in _NETWORK_CURL_CODES
+    return ConsumerNetworkError(message) if network else ConsumerCopilotError(message)
 
 
 class TurnRefused(ConsumerCopilotError):
@@ -252,11 +283,10 @@ def parse_next_available_at(value: str) -> float:
 
 
 class AccountThrottled(ConsumerCopilotError):
-    """The account spent its message quota; the backend named a reset time.
+    """An upstream request was throttled, optionally with a retry timestamp.
 
-    ``next_available_at`` is kept verbatim from ``errorDetail`` because the wait
-    is the only actionable part: no client, credential or egress change shortens
-    it, and a retry before then draws the same refusal.
+    The frame does not establish whether the limit applies to other modes,
+    providers, or the website. Preserve its hint without inventing that scope.
     """
 
     def __init__(self, message: str, next_available_at: str = ""):
@@ -264,7 +294,7 @@ class AccountThrottled(ConsumerCopilotError):
         self.next_available_at = next_available_at
 
     def retry_after_seconds(self, now: datetime | None = None) -> int | None:
-        """Seconds until the quota returns, or None if the frame named no time.
+        """Seconds until the upstream retry hint, or None if it named no time.
 
         Clamped at zero: a reset time already in the past must not become a
         negative ``Retry-After``, which clients read as "retry immediately".
@@ -443,15 +473,16 @@ class ConsumerCopilotClient:
         emitted = retried = False
         while True:
             try:
-                async for chunk in self._chat_stream_once(
+                async with closing_stream(self._chat_stream_once(
                     prompt, conversation_id, images
-                ):
-                    # Only visible output closes the retry window. Upstream can
-                    # open a turn with an empty appendText and demand clearance
-                    # right after; counting that as emitted spent the one
-                    # re-mint on nothing and made the raw challenge escape.
-                    emitted = emitted or bool(chunk)
-                    yield chunk
+                )) as owned_stream:
+                    async for chunk in owned_stream:
+                        # Only visible output closes the retry window. Upstream can
+                        # open a turn with an empty appendText and demand clearance
+                        # right after; counting that as emitted spent the one
+                        # re-mint on nothing and made the raw challenge escape.
+                        emitted = emitted or bool(chunk)
+                        yield chunk
                 return
             except ClearanceRequired:
                 if emitted or retried or self._gate is None:
@@ -559,8 +590,8 @@ class ConsumerCopilotClient:
             try:
                 await session.get(f"{BASE_URL}/")
             except RequestException as exc:
-                raise ConsumerCopilotError(
-                    f"Consumer Copilot HTTP transport failed: {exc}"
+                raise _transport_error(
+                    exc, f"Consumer Copilot HTTP transport failed: {exc}"
                 ) from exc
             if not conversation_id:
                 headers = (
@@ -569,8 +600,8 @@ class ConsumerCopilotClient:
                 try:
                     response = await session.post(CONVERSATION_URL, headers=headers)
                 except RequestException as exc:
-                    raise ConsumerCopilotError(
-                        f"Consumer Copilot HTTP transport failed: {exc}"
+                    raise _transport_error(
+                        exc, f"Consumer Copilot HTTP transport failed: {exc}"
                     ) from exc
                 if response.status_code != 200:
                     error = (
@@ -642,11 +673,12 @@ class ConsumerCopilotClient:
                     # `connected`, and any frame that arrives before it is
                     # rejected with `error: invalid-event`. _read_stream opens
                     # the turn when that frame lands.
-                    async for chunk in self._read_stream(ws, send_frame):
-                        yield chunk
-            except (WebSocketTimeout, WebSocketClosed, WebSocketError, CurlError) as exc:
-                raise ConsumerCopilotError(
-                    f"Copilot chat socket refused or interrupted the connection: {exc}"
+                    async with closing_stream(self._read_stream(ws, send_frame)) as owned_stream:
+                        async for chunk in owned_stream:
+                            yield chunk
+            except CurlError as exc:
+                raise _transport_error(
+                    exc, f"Copilot chat socket refused or interrupted the connection: {exc}"
                 ) from exc
 
     async def _read_stream(self, ws, send_frame: dict) -> AsyncIterator[str]:
@@ -667,6 +699,9 @@ class ConsumerCopilotClient:
         while True:
             try:
                 raw, _flags = await ws.recv(timeout=self._idle_timeout)
+                if _flags & CurlWsFlag.CLOSE:
+                    code = int.from_bytes(raw[:2], "big") if len(raw) >= 2 else WsCloseCode.UNKNOWN
+                    raise WebSocketClosed("Copilot sent a close frame", code)
             except WebSocketError as exc:
                 # One handler for every terminal condition -- WebSocketTimeout and
                 # WebSocketClosed both subclass WebSocketError -- because an image
@@ -702,7 +737,8 @@ class ConsumerCopilotClient:
                 if partial_image:
                     yield _buffered_image_markdown(image_prompt, partial_image)
                     return
-                raise ConsumerCopilotError(
+                raise _transport_error(
+                    exc,
                     _socket_death_note(
                         exc,
                         idle_timeout=self._idle_timeout,
@@ -710,7 +746,7 @@ class ConsumerCopilotClient:
                         started=started,
                         last_message=last_message,
                         trace=trace,
-                    )
+                    ),
                 ) from exc
 
             for message in drain_json(raw):
@@ -826,9 +862,9 @@ class ConsumerCopilotClient:
                     if code == "throttled":
                         when = str(detail.get("nextAvailableAt") or "")
                         raise AccountThrottled(
-                            f"This Copilot account {_THROTTLED_MARKER}"
-                            + (f"; the backend allows the next turn at {when}"
-                               if when else " and named no reset time")
+                            f"Copilot throttled this request (mode={self._mode})"
+                            + (f"; upstream reported nextAvailableAt={when}"
+                               if when else " and named no retry time")
                             + f".{_trace_suffix(trace)}",
                             next_available_at=when,
                         )

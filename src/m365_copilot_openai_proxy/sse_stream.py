@@ -17,6 +17,17 @@ SSE_HEADERS = {
 }
 
 
+@contextlib.asynccontextmanager
+async def closing_stream(stream: AsyncIterator) -> AsyncIterator[AsyncIterator]:
+    """Close an owned iterator before its consumer exits, including at a yield."""
+    try:
+        yield stream
+    finally:
+        close = getattr(stream, "aclose", None)
+        if close is not None:
+            await close()
+
+
 async def keepalive_stream(
     stream: AsyncIterator[str],
     *,

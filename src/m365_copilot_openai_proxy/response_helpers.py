@@ -12,11 +12,16 @@ from jsonschema.validators import validator_for
 from referencing import Registry
 from referencing.exceptions import Unresolvable
 
+from .error_handlers import network_error_payload, rate_limit_error_payload
+from .reasoning import ReasoningCollector, ReasoningDelta, StreamChunk
+from .reasoning_stream import AnthropicContentStream, ResponsesReasoningStream
 from .session_store import PersistentSession
+from .sse_stream import closing_stream
 from .studio_planner import PlannerTurn, ordered_or_streamed
 from .substrate_client import (
     SubstrateCopilotClient,
     SubstrateCopilotError,
+    SubstrateNetworkError,
     SubstrateThrottled,
     _dedupe_repeated_delta,
 )
@@ -74,33 +79,39 @@ async def _openai_stream(
         "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
     }
     yield f"data: {json.dumps(first_chunk)}\n\n"
+    reasoning = ReasoningCollector()
     raw_text = ""
     full_text = ""
     # Truncation is a delivery boundary, not an early exit: the turn keeps being
     # drained after a hit so usage and the stored session message stay whole.
     trimmer = StopSequenceTrimmer(stops or [])
     try:
-        async for delta in client.chat_stream(prompt, additional_context, session, images):
-            delta = _dedupe_repeated_delta(raw_text, delta)
-            if not delta:
-                continue
-            raw_text += delta
-            if text_transform is not None:
-                continue
-            if trimmer.stopped:
-                continue
-            delta = trimmer.feed(delta)
-            if not delta:
-                continue
-            full_text += delta
-            chunk = {
-                "id": completion_id,
-                "object": "chat.completion.chunk",
-                "created": created,
-                "model": model_alias,
-                "choices": [{"index": 0, "delta": {"content": delta}, "finish_reason": None}],
-            }
-            yield f"data: {json.dumps(chunk)}\n\n"
+        async with closing_stream(client.chat_stream(prompt, additional_context, session, images)) as owned_stream:
+            async for delta in owned_stream:
+                if isinstance(delta, ReasoningDelta):
+                    chunk = {**first_chunk, "choices": [{"index": 0, "delta": {"reasoning_content": reasoning.add(delta)}, "finish_reason": None}]}
+                    yield f"data: {json.dumps(chunk)}\n\n"
+                    continue
+                delta = _dedupe_repeated_delta(raw_text, delta)
+                if not delta:
+                    continue
+                raw_text += delta
+                if text_transform is not None:
+                    continue
+                if trimmer.stopped:
+                    continue
+                delta = trimmer.feed(delta)
+                if not delta:
+                    continue
+                full_text += delta
+                chunk = {
+                    "id": completion_id,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": model_alias,
+                    "choices": [{"index": 0, "delta": {"content": delta}, "finish_reason": None}],
+                }
+                yield f"data: {json.dumps(chunk)}\n\n"
     except SubstrateCopilotError as exc:
         # A mid-stream upstream failure (most often a mode M365 will not serve for
         # this account) must reach the client as readable assistant text, NOT a
@@ -120,9 +131,9 @@ async def _openai_stream(
             "model": model_alias,
             "choices": [{"index": 0, "delta": {"content": sep + error_text}, "finish_reason": None}],
         }
-        if isinstance(exc, SubstrateThrottled):
+        if isinstance(exc, (SubstrateThrottled, SubstrateNetworkError)):
             err_delta["m365_error"] = {
-                "type": "rate_limit_error",
+                "type": "network_error" if isinstance(exc, SubstrateNetworkError) else "rate_limit_error",
                 "message": str(exc),
             }
         yield f"data: {json.dumps(err_delta)}\n\n"
@@ -370,11 +381,6 @@ def _responses_event(payload: dict, sequence_number: int) -> str:
     )
 
 
-async def _collect_deduped_stream(stream: AsyncIterator[str]) -> str:
-    text = ""
-    async for delta in stream:
-        text += _dedupe_repeated_delta(text, delta)
-    return text
 
 
 async def _responses_stream(
@@ -413,54 +419,60 @@ async def _responses_stream(
     sequence += 1
     yield _responses_event({"type": "response.in_progress", "response": in_progress}, sequence)
     sequence += 1
-    yield _responses_event({
-        "type": "response.output_item.added",
-        "output_index": 0,
-        "item": {
-            "id": item_id,
-            "type": "message",
-            "status": "in_progress",
-            "role": "assistant",
-            "content": [],
-        },
-    }, sequence)
-    sequence += 1
-    yield _responses_event({
-        "type": "response.content_part.added",
-        "item_id": item_id,
-        "output_index": 0,
-        "content_index": 0,
-        "part": {"type": "output_text", "text": "", "annotations": [], "logprobs": []},
-    }, sequence)
-    sequence += 1
+    reasoning = ResponsesReasoningStream()
+    message_index: int | None = None
+
+    def text_events(text: str):
+        nonlocal message_index
+        if message_index is None:
+            message_index = reasoning.reserve_index()
+            yield {
+                "type": "response.output_item.added",
+                "output_index": message_index,
+                "item": {"id": item_id, "type": "message", "status": "in_progress", "role": "assistant", "content": []},
+            }
+            yield {
+                "type": "response.content_part.added", "item_id": item_id,
+                "output_index": message_index, "content_index": 0,
+                "part": {"type": "output_text", "text": "", "annotations": [], "logprobs": []},
+            }
+        if text:
+            yield {
+                "type": "response.output_text.delta", "item_id": item_id,
+                "output_index": message_index, "content_index": 0, "delta": text, "logprobs": [],
+            }
 
     raw_text = ""
     full_text = ""
     try:
-        async for delta in client.chat_stream(prompt, additional_context, session, images):
-            delta = _dedupe_repeated_delta(raw_text, delta)
-            if not delta:
-                continue
-            raw_text += delta
-            if text_transform is not None:
-                continue
-            full_text += delta
-            yield _responses_event({
-                "type": "response.output_text.delta",
-                "item_id": item_id,
-                "output_index": 0,
-                "content_index": 0,
-                "delta": delta,
-                "logprobs": [],
-            }, sequence)
-            sequence += 1
+        async with closing_stream(client.chat_stream(prompt, additional_context, session, images)) as owned_stream:
+            async for delta in owned_stream:
+                if isinstance(delta, ReasoningDelta):
+                    for payload in reasoning.add(delta):
+                        yield _responses_event(payload, sequence)
+                        sequence += 1
+                    continue
+                delta = _dedupe_repeated_delta(raw_text, delta)
+                if not delta:
+                    continue
+                raw_text += delta
+                if text_transform is not None:
+                    continue
+                full_text += delta
+                for payload in text_events(delta):
+                    yield _responses_event(payload, sequence)
+                    sequence += 1
     except SubstrateCopilotError as exc:
         if call_record is not None:
             call_record["error"] = str(exc)
             call_record["tool_calls_result"] = []
         if on_text_done is not None:
             on_text_done(raw_text)
-        error_code = "rate_limit_error" if isinstance(exc, SubstrateThrottled) else "server_error"
+        error_code = (
+            "network_error" if isinstance(exc, SubstrateNetworkError)
+            else "rate_limit_error" if isinstance(exc, SubstrateThrottled)
+            else "server_error"
+        )
         yield _responses_event({
             "type": "error",
             "code": error_code,
@@ -490,23 +502,22 @@ async def _responses_stream(
 
     if text_transform is not None:
         full_text = _transform_complete_text(raw_text, text_transform)
-        if full_text:
-            yield _responses_event({
-                "type": "response.output_text.delta",
-                "item_id": item_id,
-                "output_index": 0,
-                "content_index": 0,
-                "delta": full_text,
-                "logprobs": [],
-            }, sequence)
+        for payload in text_events(full_text):
+            yield _responses_event(payload, sequence)
             sequence += 1
+    for payload in text_events(""):
+        yield _responses_event(payload, sequence)
+        sequence += 1
+    for payload in reasoning.finish():
+        yield _responses_event(payload, sequence)
+        sequence += 1
     if on_text_done is not None:
         on_text_done(full_text)
     message_item = _responses_message_item(full_text, item_id)
     yield _responses_event({
         "type": "response.output_text.done",
         "item_id": item_id,
-        "output_index": 0,
+        "output_index": message_index,
         "content_index": 0,
         "text": full_text,
         "logprobs": [],
@@ -515,19 +526,19 @@ async def _responses_stream(
     yield _responses_event({
         "type": "response.content_part.done",
         "item_id": item_id,
-        "output_index": 0,
+        "output_index": message_index,
         "content_index": 0,
         "part": message_item["content"][0],
     }, sequence)
     sequence += 1
     yield _responses_event({
         "type": "response.output_item.done",
-        "output_index": 0,
+        "output_index": message_index,
         "item": message_item,
     }, sequence)
     sequence += 1
     completed = _responses_object(
-        resp_id, model_alias, created, "completed", [message_item],
+        resp_id, model_alias, created, "completed", reasoning.output((message_index, message_item)),
         response_tools=response_tools,
         tool_choice=tool_choice,
         parallel_tool_calls=parallel_tool_calls,
@@ -581,6 +592,7 @@ async def _responses_stream_with_tools(
     created = int(time.time())
     sequence = 0
     names = tool_names or set()
+    reasoning = ResponsesReasoningStream()
     full_text = ""
     in_progress = _responses_object(
         resp_id, model_alias, created, "in_progress", [],
@@ -602,14 +614,15 @@ async def _responses_stream_with_tools(
             nonlocal router_decided
             router_decided = True
 
-        async def inline_stream() -> AsyncIterator[str]:
-            async for delta in client.chat_stream(
+        async def inline_stream() -> AsyncIterator[StreamChunk]:
+            async with closing_stream(client.chat_stream(
                 prompt, additional_context, session, images
-            ):
-                yield delta
+            )) as owned_stream:
+                async for delta in owned_stream:
+                    yield delta
 
-        async def router_stream(fallback_turn) -> AsyncIterator[str]:
-            async for delta in routed_or_streamed(
+        async def router_stream(fallback_turn) -> AsyncIterator[StreamChunk]:
+            async with closing_stream(routed_or_streamed(
                 client,
                 router_prompt,
                 prompt,
@@ -620,8 +633,9 @@ async def _responses_stream_with_tools(
                 should_fallback=should_fallback,
                 fallback_turn=fallback_turn,
                 on_router_fallback=on_router_fallback,
-            ):
-                yield delta
+            )) as owned_stream:
+                async for delta in owned_stream:
+                    yield delta
 
         stream = ordered_or_streamed(
             studio_turn=studio_turn,
@@ -633,7 +647,14 @@ async def _responses_stream_with_tools(
             on_studio_fallback=on_studio_fallback,
             skip_router_fallback=skip_router_fallback,
         )
-        full_text = await _collect_deduped_stream(stream)
+        async with closing_stream(stream) as owned_stream:
+            async for delta in owned_stream:
+                if isinstance(delta, ReasoningDelta):
+                    for payload in reasoning.add(delta):
+                        yield _responses_event(payload, sequence)
+                        sequence += 1
+                else:
+                    full_text += _dedupe_repeated_delta(full_text, delta)
         full_text, declined = split_no_tool_marker(full_text)
         tool_calls = _resolve_responses_tool_calls(
             full_text,
@@ -666,14 +687,17 @@ async def _responses_stream_with_tools(
             retry_session = (
                 studio_turn.session if retry_client is not client else session
             )
-            full_text = await _collect_deduped_stream(
-                retry_client.chat_stream(
-                    required_tool_retry_prompt,
-                    retry_context,
-                    retry_session,
-                    images,
-                )
-            )
+            full_text = ""
+            async with closing_stream(retry_client.chat_stream(
+                required_tool_retry_prompt, retry_context, retry_session, images
+            )) as owned_stream:
+                async for delta in owned_stream:
+                    if isinstance(delta, ReasoningDelta):
+                        for payload in reasoning.add(delta):
+                            yield _responses_event(payload, sequence)
+                            sequence += 1
+                    else:
+                        full_text += _dedupe_repeated_delta(full_text, delta)
             full_text, declined = split_no_tool_marker(full_text)
             tool_calls = _resolve_responses_tool_calls(
                 full_text,
@@ -712,11 +736,17 @@ async def _responses_stream_with_tools(
             retry_session = (
                 studio_turn.session if retry_client is not client else session
             )
-            retry_text = await _collect_deduped_stream(
-                retry_client.chat_stream(
-                    retry_prompt, retry_context, retry_session, images
-                )
-            )
+            retry_text = ""
+            async with closing_stream(retry_client.chat_stream(
+                retry_prompt, retry_context, retry_session, images
+            )) as owned_stream:
+                async for delta in owned_stream:
+                    if isinstance(delta, ReasoningDelta):
+                        for payload in reasoning.add(delta):
+                            yield _responses_event(payload, sequence)
+                            sequence += 1
+                    else:
+                        retry_text += _dedupe_repeated_delta(retry_text, delta)
             retry_calls = _resolve_responses_tool_calls(
                 retry_text,
                 names,
@@ -735,7 +765,11 @@ async def _responses_stream_with_tools(
             call_record["tool_calls_result"] = []
         if on_text_done is not None:
             on_text_done(full_text)
-        error_code = "rate_limit_error" if isinstance(exc, SubstrateThrottled) else "server_error"
+        error_code = (
+            "network_error" if isinstance(exc, SubstrateNetworkError)
+            else "rate_limit_error" if isinstance(exc, SubstrateThrottled)
+            else "server_error"
+        )
         yield _responses_event({
             "type": "error",
             "code": error_code,
@@ -803,17 +837,22 @@ async def _responses_stream_with_tools(
     text_out = _strip_tool_call_blocks(full_text) if names else full_text
     if text_transform is not None:
         text_out = text_transform(text_out)
-    output: list[dict] = []
+    for payload in reasoning.finish():
+        yield _responses_event(payload, sequence)
+        sequence += 1
+    output = reasoning.output()
+    answer_output: list[dict] = []
     if text_out or not tool_calls:
-        output.append(_responses_message_item(text_out))
-    output.extend(_responses_function_call_items(tool_calls))
+        answer_output.append(_responses_message_item(text_out))
+    answer_output.extend(_responses_function_call_items(tool_calls))
+    output.extend(answer_output)
     issued_call_ids = [
         item["call_id"] for item in output if item["type"] == "function_call"
     ]
     if on_response_issued is not None:
         on_response_issued(resp_id, issued_call_ids)
 
-    for output_index, item in enumerate(output):
+    for output_index, item in enumerate(answer_output, start=reasoning.next_index):
         if item["type"] == "message":
             added = {
                 "id": item["id"],
@@ -927,8 +966,8 @@ async def _anthropic_stream(
         return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
     yield sse("message_start", {"type": "message_start", "message": {"id": msg_id, "type": "message", "role": "assistant", "content": [], "model": model_alias, "stop_reason": None, "stop_sequence": None, "usage": anthropic_usage(usage_for_record(call_record))}})
-    yield sse("content_block_start", {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}})
     yield sse("ping", {"type": "ping"})
+    content_stream = AnthropicContentStream()
 
     raw_text = ""
     full_text = ""
@@ -936,45 +975,56 @@ async def _anthropic_stream(
     # stored session message stay whole; only delivery stops.
     trimmer = StopSequenceTrimmer(stops or [])
     try:
-        async for delta in client.chat_stream(prompt, additional_context, session, images):
-            delta = _dedupe_repeated_delta(raw_text, delta)
-            if not delta:
-                continue
-            raw_text += delta
-            if text_transform is not None:
-                continue
-            if trimmer.stopped:
-                continue
-            delta = trimmer.feed(delta)
-            if not delta:
-                continue
-            full_text += delta
-            yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": delta}})
+        async with closing_stream(client.chat_stream(prompt, additional_context, session, images)) as owned_stream:
+            async for delta in owned_stream:
+                if isinstance(delta, ReasoningDelta):
+                    for event in content_stream.reasoning(delta):
+                        yield event
+                    continue
+                delta = _dedupe_repeated_delta(raw_text, delta)
+                if not delta:
+                    continue
+                raw_text += delta
+                if text_transform is not None:
+                    continue
+                if trimmer.stopped:
+                    continue
+                delta = trimmer.feed(delta)
+                if not delta:
+                    continue
+                full_text += delta
+                for event in content_stream.text(delta):
+                    yield event
     except SubstrateCopilotError as exc:
         error_text = f"⚠️ 上游错误：{exc}"
         if call_record is not None:
             call_record["error"] = str(exc)
-        if isinstance(exc, SubstrateThrottled):
+        if isinstance(exc, (SubstrateThrottled, SubstrateNetworkError)):
             if text_transform is not None and raw_text:
                 full_text = _transform_complete_text(raw_text, text_transform)
                 if full_text:
-                    yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": full_text}})
+                    for event in content_stream.text(full_text):
+                        yield event
             if on_text_done is not None:
                 on_text_done(full_text)
-            yield sse("error", {
-                "type": "error",
-                "error": {
-                    "type": "rate_limit_error",
-                    "message": str(exc),
-                },
-            })
+            for event in content_stream.close():
+                yield event
+            payload = (
+                network_error_payload("/v1/messages", str(exc))
+                if isinstance(exc, SubstrateNetworkError)
+                else rate_limit_error_payload("/v1/messages", str(exc))
+            )
+            yield sse("error", payload)
             return
         if text_transform is not None and raw_text:
             full_text = _transform_complete_text(raw_text, text_transform)
             if full_text:
-                yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": full_text}})
-        yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": error_text}})
-        yield sse("content_block_stop", {"type": "content_block_stop", "index": 0})
+                for event in content_stream.text(full_text):
+                    yield event
+        for event in content_stream.text(error_text):
+            yield event
+        for event in content_stream.close():
+            yield event
         if on_text_done is not None:
             on_text_done(full_text + error_text)
         yield sse("message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None}, "usage": anthropic_usage(usage_for_record(call_record))})
@@ -986,18 +1036,23 @@ async def _anthropic_stream(
         full_text = _transform_complete_text(raw_text, text_transform)
         full_text, matched = apply_stop(full_text, stops or [])
         if full_text:
-            yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": full_text}})
+            for event in content_stream.text(full_text):
+                yield event
     else:
         # A held partial can no longer complete a match, so release it.
         tail = trimmer.flush()
         if tail:
             full_text += tail
-            yield sse("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": tail}})
+            for event in content_stream.text(tail):
+                yield event
     if on_text_done is not None:
         on_text_done(full_text)
     if on_response_done is not None:
         on_response_done({"role": "assistant", "content": full_text})
-    yield sse("content_block_stop", {"type": "content_block_stop", "index": 0})
+    for event in content_stream.text(""):
+        yield event
+    for event in content_stream.close():
+        yield event
     stop_reason = "stop_sequence" if matched else "end_turn"
     yield sse("message_delta", {"type": "message_delta", "delta": {"stop_reason": stop_reason, "stop_sequence": matched or None}, "usage": anthropic_usage(usage_for_record(call_record))})
     yield sse("message_stop", {"type": "message_stop"})

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,7 +14,11 @@ from m365_copilot_openai_proxy import (
 from m365_copilot_openai_proxy.app import create_app
 from m365_copilot_openai_proxy.config import Settings
 from m365_copilot_openai_proxy.consumer_client import ConsumerCopilotError
-from m365_copilot_openai_proxy.session_helpers import _encode_responses_session_id
+from m365_copilot_openai_proxy.session_helpers import (
+    _decode_responses_session_id,
+    _encode_responses_session_id,
+    _responses_store_key_belongs_to_request,
+)
 
 
 _ROLLOUT_HINT = "该实验 mode 可能受账户、地区或 Microsoft rollout 限制"
@@ -109,6 +114,229 @@ def provider_app(tmp_path):
 
     app.state.consumer_client_factory = consumer_factory
     return app, consumer_key, m365_key, made_consumers, made_m365
+
+
+def _switch_session_protocol(app, account_id, provider):
+    # Exercise the request/session boundary independently of credential ingress.
+    # The store's activation/identity validation has separate route coverage.
+    with app.state.account_store._lock:
+        account = app.state.account_store.get(account_id)
+        account.consumer_token = "consumer-token"
+        account.consumer_cookies = []
+        account.provider = provider
+        account.protocol_epoch += 1
+
+
+class _SessionRecordingM365:
+    def __init__(self):
+        self._tone = "Magic"
+        self.sessions = []
+
+    async def chat_stream(self, prompt, additional_context, session=None, images=None):
+        assert session is not None
+        self.sessions.append(session)
+        session.reserve_turn()
+        yield session.conversation_id
+
+    async def chat(self, prompt, additional_context, session=None, images=None):
+        return "".join([
+            chunk async for chunk in self.chat_stream(
+                prompt, additional_context, session, images,
+            )
+        ])
+
+
+@pytest.mark.parametrize("endpoint,body", _ROUTE_CASES[:2])
+@pytest.mark.parametrize("session_mode", ["header", "history"])
+@pytest.mark.parametrize("stream", [False, True])
+def test_chat_sessions_continue_only_within_the_same_protocol_epoch(
+    provider_app, endpoint, body, session_mode, stream,
+):
+    app, _consumer_key, key, made_consumers, _made_m365 = provider_app
+    upstream = _SessionRecordingM365()
+    app.state.copilot_client_factory = lambda **_kwargs: upstream
+    headers = {"Authorization": f"Bearer {key.key}"}
+    if session_mode == "header":
+        headers["X-M365-Session-Id"] = "switching-conversation"
+    client = TestClient(app)
+    initial = {**body, "model": "Magic", "stream": stream}
+
+    first = client.post(endpoint, headers=headers, json=initial)
+    assert first.status_code == 200, first.text
+    old = upstream.sessions[-1]
+    assert old.conversation_id in first.text
+    history = [
+        *initial["messages"],
+        {"role": "assistant", "content": old.conversation_id},
+        {"role": "user", "content": "continue"},
+    ]
+    follow = {**initial, "messages": history}
+    same_epoch = client.post(endpoint, headers=headers, json=follow)
+    assert same_epoch.status_code == 200, same_epoch.text
+    assert upstream.sessions[-1] is old
+    assert old.turn_count == 2
+
+    _switch_session_protocol(app, key.account_id, "consumer")
+    consumer = client.post(
+        endpoint, headers=headers, json={**follow, "model": "copilot"},
+    )
+    assert consumer.status_code == 200, consumer.text
+    assert made_consumers[-1].calls == 1
+    assert old.turn_count == 2
+
+    _switch_session_protocol(app, key.account_id, "m365")
+    returned = client.post(endpoint, headers=headers, json=follow)
+    assert returned.status_code == 200, returned.text
+    current = upstream.sessions[-1]
+    assert current.conversation_id != old.conversation_id
+    assert current.conversation_id in returned.text
+    assert current.turn_count == 1
+    resumed = client.post(endpoint, headers=headers, json={
+        **follow,
+        "messages": [
+            *history,
+            {"role": "assistant", "content": current.conversation_id},
+            {"role": "user", "content": "continue again"},
+        ],
+    })
+    assert resumed.status_code == 200, resumed.text
+    assert upstream.sessions[-1] is current
+    assert current.turn_count == 2
+    assert old.turn_count == 2
+    listed = client.get("/user/sessions?cloud=false", headers=headers)
+    assert listed.status_code == 200, listed.text
+    assert {row["conversation_id"] for row in listed.json()["data"]} == {
+        old.conversation_id, current.conversation_id,
+    }
+
+
+@pytest.mark.parametrize("initial_epoch", [0, 3])
+def test_responses_continuation_cannot_cross_a_protocol_round_trip(
+    provider_app, initial_epoch,
+):
+    app, _consumer_key, key, made_consumers, _made_m365 = provider_app
+    app.state.account_store.get(key.account_id).protocol_epoch = initial_epoch
+    upstream = _SessionRecordingM365()
+    app.state.copilot_client_factory = lambda **_kwargs: upstream
+    headers = {
+        "Authorization": f"Bearer {key.key}",
+        "X-M365-Session-Id": "responses-switch",
+    }
+    client = TestClient(app)
+    body = {"model": "Magic", "input": "first turn"}
+    first = client.post("/v1/responses", headers=headers, json=body)
+    assert first.status_code == 200, first.text
+    old = upstream.sessions[-1]
+    first_id = first.json()["id"]
+    continued = client.post("/v1/responses", headers=headers, json={
+        **body, "input": "second turn", "previous_response_id": first_id,
+    })
+    assert continued.status_code == 200, continued.text
+    assert upstream.sessions[-1] is old
+    latest_id = continued.json()["id"]
+
+    # A stale same-epoch id is rejected after acquiring the response lock.
+    stale = client.post("/v1/responses", headers=headers, json={
+        **body, "previous_response_id": first_id,
+    })
+    assert stale.status_code == 400, stale.text
+    assert not old.response_lock.locked()
+    assert old.turn_count == 2
+
+    for provider, model in [("consumer", "copilot"), ("m365", "Magic")]:
+        _switch_session_protocol(app, key.account_id, provider)
+        rejected = client.post("/v1/responses", headers=headers, json={
+            **body, "model": model, "previous_response_id": latest_id,
+        })
+        assert rejected.status_code == 400, rejected.text
+        assert rejected.json()["error"]["type"] == "http_error"
+        assert not old.response_lock.locked()
+        assert old.turn_count == 2
+    assert all(consumer.calls == 0 for consumer in made_consumers)
+
+    fresh = client.post("/v1/responses", headers=headers, json=body)
+    assert fresh.status_code == 200, fresh.text
+    current = upstream.sessions[-1]
+    assert current.conversation_id != old.conversation_id
+    resumed = client.post("/v1/responses", headers=headers, json={
+        **body, "input": "new epoch continuation", "previous_response_id": fresh.json()["id"],
+    })
+    assert resumed.status_code == 200, resumed.text
+    assert upstream.sessions[-1] is current
+    assert current.turn_count == 2
+
+
+@pytest.mark.parametrize("previous_id", [
+    "foreign-response-id",
+    _encode_responses_session_id("unsigned-client-history"),
+])
+def test_consumer_keeps_accepting_unverified_client_previous_ids(
+    provider_app, previous_id,
+):
+    app, key, _m365_key, made_consumers, made_m365 = provider_app
+    response = TestClient(app).post("/v1/responses", headers={
+        "Authorization": f"Bearer {key.key}",
+    }, json={
+        "model": "copilot",
+        "input": "continue from client history",
+        "previous_response_id": previous_id,
+    })
+
+    assert response.status_code == 200, response.text
+    assert made_consumers[-1].calls == 1
+    assert made_m365 == []
+
+
+def test_started_request_retains_its_protocol_snapshot_after_switch(provider_app):
+    app, _consumer_key, key, made_consumers, _made_m365 = provider_app
+    upstream = _SessionRecordingM365()
+    original = SimpleNamespace(
+        state=SimpleNamespace(
+            api_key_obj=key,
+            account=SimpleNamespace(id=key.account_id, provider="m365", protocol_epoch=0),
+        ),
+    )
+
+    def switch_during_client_creation(**_kwargs):
+        _switch_session_protocol(app, key.account_id, "consumer")
+        return upstream
+
+    app.state.copilot_client_factory = switch_during_client_creation
+    headers = {"Authorization": f"Bearer {key.key}"}
+    client = TestClient(app)
+    started = client.post("/v1/responses", headers=headers, json={
+        "model": "Magic", "input": "started before switching",
+    })
+    assert started.status_code == 200, started.text
+    assert upstream.sessions[-1].conversation_id in started.text
+    issued_key = _decode_responses_session_id(
+        started.json()["id"], app.state.media_proxy_secret,
+    )
+    assert _responses_store_key_belongs_to_request(original, issued_key)
+
+    next_request = client.post("/v1/responses", headers=headers, json={
+        "model": "copilot", "input": "started after switching",
+    })
+    assert next_request.status_code == 200, next_request.text
+    assert made_consumers[-1].calls == 1
+    assert upstream.sessions[-1].turn_count == 1
+
+
+def test_request_snapshot_is_taken_after_on_demand_refresh(provider_app):
+    app, _consumer_key, key, made_consumers, made_m365 = provider_app
+
+    async def refresh_and_switch(account_id):
+        _switch_session_protocol(app, account_id, "consumer")
+        return True
+
+    app.state.refresh_scheduler.ensure_fresh = refresh_and_switch
+    response = TestClient(app).post("/v1/responses", headers={
+        "Authorization": f"Bearer {key.key}",
+    }, json={"model": "copilot", "input": "use refreshed protocol"})
+
+    assert response.status_code == 200, response.text
+    assert made_consumers[-1].calls == 1
+    assert made_m365 == []
 
 
 def _body_with_model(body: dict, model: str) -> dict:

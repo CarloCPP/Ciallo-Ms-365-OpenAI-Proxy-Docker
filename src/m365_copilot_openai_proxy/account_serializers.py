@@ -7,6 +7,8 @@ from .key_store import ApiKey
 def account_binding_state(acc: Account | None) -> str:
     if acc is None:
         return "none"
+    if acc.provider == "consumer":
+        return "cookie" if acc.consumer_cookies else "token_only" if acc.consumer_token else "none"
     if getattr(acc, "cookie_valid", False):
         return "cookie"
     if acc.token:
@@ -18,6 +20,15 @@ def _provider_fields(acc: Account) -> dict:
     """Provider tag plus presence-only flags for the consumer credential pair."""
     return {
         "provider": getattr(acc, "provider", "m365"),
+        "is_personal": acc.is_personal,
+        "protocols": acc.protocol_states(),
+        "cookie_valid": bool(acc.consumer_cookies) if acc.provider == "consumer" else acc.cookie_valid,
+        "cookie_updated_at": acc.consumer_updated_at if acc.provider == "consumer" else acc.cookie_updated_at,
+        "cookie_expires_at": 0.0 if acc.provider == "consumer" else acc.cookie_expires_at,
+        "throttled_until": acc.throttled_until if acc.provider == "consumer" else 0.0,
+        "throttled_mode": acc.throttled_mode if acc.provider == "consumer" else "",
+        "throttled_at": acc.throttled_at if acc.provider == "consumer" else 0.0,
+        "has_token": bool(acc.token) if acc.provider == "m365" else False,
         "has_consumer_token": bool(getattr(acc, "consumer_token", "")),
         "consumer_updated_at": getattr(acc, "consumer_updated_at", 0.0),
         # Presence only, never the value: this is a long-lived bearer credential.
@@ -53,7 +64,7 @@ def user_account_public(acc: Account | None) -> dict | None:
     return {
         "id": acc.id,
         "name": acc.name,
-        "email": acc.email,
+        "email": acc.display_email,
         "token_source": acc.token_source,
         "binding_state": binding_state,
         "updated_at": acc.updated_at,
@@ -76,6 +87,8 @@ def user_account_public(acc: Account | None) -> dict | None:
         "cookie_updated_at": getattr(acc, "cookie_updated_at", 0.0),
         "cookie_expires_at": getattr(acc, "cookie_expires_at", 0.0),
         "throttled_until": getattr(acc, "throttled_until", 0.0),
+        "throttled_mode": getattr(acc, "throttled_mode", ""),
+        "throttled_at": getattr(acc, "throttled_at", 0.0),
         "token_status": acc.token_status(),
         **_provider_fields(acc),
     }
@@ -87,7 +100,7 @@ def account_public(acc: Account, bound_keys: list[ApiKey] | None = None) -> dict
     return {
         "id": acc.id,
         "name": acc.name,
-        "email": acc.email,
+        "email": acc.display_email,
         "cdp_port": acc.cdp_port,
         "token_source": acc.token_source,
         "binding_state": binding_state,
@@ -107,6 +120,8 @@ def account_public(acc: Account, bound_keys: list[ApiKey] | None = None) -> dict
         ),
         "refresh_token_disabled_at": getattr(acc, "refresh_token_disabled_at", 0.0),
         "throttled_until": getattr(acc, "throttled_until", 0.0),
+        "throttled_mode": getattr(acc, "throttled_mode", ""),
+        "throttled_at": getattr(acc, "throttled_at", 0.0),
         "token_status": acc.token_status(),
         "key_count": len(keys),
         "bound_names": [k.username or k.name or k.id for k in keys],

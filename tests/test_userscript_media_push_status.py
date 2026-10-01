@@ -24,6 +24,8 @@ def _push(action: str, *, language="zh", media=True, replies=None, cookies=True,
 const config = {config};
 let lang = config.language;
 let latestToken = 'fixture-substrate';
+const pushActivation = {{m365:true,consumer:true}};
+const localStorage = {{length:0}};
 let latestMediaAuth = config.media ? {{authorization:'Bearer fixture-media',host:'jp-prod.asyncgw.teams.microsoft.com'}} : null;
 let latestDesignerAuth = null, latestRefreshToken = '';
 const IS_M365_SITE = false;
@@ -50,9 +52,11 @@ const GM_xmlhttpRequest = options => {{
 }};
 {_between('const I18N =', '// Colored inline-SVG icons')}
 {_between('function gmFetch(', '// Get ALL cookies')}
-{_between('async function pushUserToken(', '// Push a consumer')}
+{_between('// ---- Consumer account email resolution', '// ---- End consumer account email resolution')}
+{_between('async function pushUserToken(', '// ChatAI credentials have their own endpoint')}
 {_between('async function pushUserMediaAuth(', 'async function pushLatestMediaAuthSilently(')}
 {_between('async function pushToken()', '// Push cookies')}
+{_between('async function pushCookies()', '// Push a consumer')}
 {_between('async function oneClickSetup()', '// Push the most recent captured chat payload')}
 (async () => {{
     await {action}();
@@ -60,7 +64,7 @@ const GM_xmlhttpRequest = options => {{
 }})().catch(error => {{console.error(error); process.exitCode=1;}});
 """
     completed = subprocess.run(
-        ["node", "-e", program], check=True, capture_output=True,
+        ["node", "-"], input=program, check=True, capture_output=True,
         text=True, encoding="utf-8", timeout=20,
     )
     result = json.loads(completed.stdout)
@@ -180,3 +184,10 @@ def test_one_click_keeps_cookie_warning_alongside_media_result():
     assert "Cookie 推送：成功（警告） (1/2)" in result["alerts"][0]
     assert "fixture cookie warning" in result["alerts"][0]
     assert "成功" in _media_line(result, "zh")
+
+
+def test_cookie_bundle_stops_before_mutating_any_credentials_after_subject_rejection():
+    result = _push("pushCookies", replies={"token": {"status": 409, "data": {"error": {"message": "Microsoft subject mismatch"}}}})
+    assert [request["endpoint"] for request in result["requests"]] == ["token"]
+    assert "Microsoft subject mismatch" in result["alerts"][0]
+    assert result["elements"]["m365-push-cookies"]["disabled"] is False

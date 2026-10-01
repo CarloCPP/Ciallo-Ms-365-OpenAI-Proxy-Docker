@@ -201,23 +201,22 @@ def test_clear_credentials_clears_studio_binding(tmp_path):
     assert account.studio_agent_ready is False
 
 
-def test_switching_to_consumer_clears_studio_binding(tmp_path):
+def test_consumer_push_cannot_overwrite_enterprise_studio_identity(tmp_path):
     store = AccountStore(tmp_path / "accounts.json")
     account = store.add(name="Bound", token=_jwt())
     store.set_studio_agent_id(account.id, AGENT_ID)
 
-    store.set_consumer_auth(
-        account.id,
-        [{"name": "cookie", "value": "fake"}],
-        "fake-consumer-token",
-        consumer_account_id="home:fake-account",
-    )
+    with pytest.raises(ValueError, match="same captured Microsoft account"):
+        store.set_consumer_auth(
+            account.id,
+            [{"name": "cookie", "value": "fake"}],
+            "fake-consumer-token",
+            consumer_account_id="home:fake-account",
+        )
 
-    assert account.provider == "consumer"
-    assert account.studio_agent_id == ""
-    assert account.studio_agent_tenant_id == ""
-    assert account.studio_agent_object_id == ""
-    assert account.studio_agent_ready is False
+    assert account.provider == "m365"
+    assert account.studio_agent_id == AGENT_ID
+    assert account.studio_agent_ready is True
 
 
 def test_admin_explicitly_binds_and_unbinds_studio_agent(tmp_path):

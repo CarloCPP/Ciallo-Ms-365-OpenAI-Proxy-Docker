@@ -28,6 +28,8 @@ import logging
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 
+from .reasoning import ReasoningDelta, StreamChunk, suppress_reasoning
+from .sse_stream import closing_stream
 from .substrate_client import SubstrateCopilotError
 from .tone_options import TOOL_PLANNING_MODES, router_applies, tool_planning_mode
 from .tool_call_parser import _NO_TOOL_MARKER, _coerce_tool_call
@@ -56,7 +58,7 @@ _CALL_TOOL_RE = re.compile(r"CALL_TOOL\s*:\s*([A-Za-z0-9_.\-]+)\s*\(", re.IGNORE
 _DECODER = json.JSONDecoder()
 NeedsFallback = Callable[[str], bool]
 AnswerFallback = Callable[[], Awaitable[str]]
-StreamFallback = Callable[[], AsyncIterator[str]]
+StreamFallback = Callable[[], AsyncIterator[StreamChunk]]
 
 
 def build_router_prompt(
@@ -213,7 +215,7 @@ async def routed_or_streamed(
     should_fallback: NeedsFallback | None = None,
     fallback_turn: StreamFallback | None = None,
     on_router_fallback: Callable[[str], None] | None = None,
-) -> AsyncIterator[str]:
+) -> AsyncIterator[StreamChunk]:
     """chat_stream, with the same router pre-step, yielding the decision as one chunk.
 
     Shaped like ``chat_stream`` so a caller that already buffers a tools-bearing
@@ -229,24 +231,30 @@ async def routed_or_streamed(
         if fallback_turn is not None and not declined:
             if on_router_fallback is not None:
                 on_router_fallback("classification_error")
-            async for chunk in fallback_turn():
-                yield chunk
+            async with closing_stream(fallback_turn()) as owned_stream:
+                async for chunk in owned_stream:
+                    yield chunk
             return
     text = ""
     buffered: list[str] | None = [] if fallback_turn is not None else None
-    async for delta in client.chat_stream(prompt, additional_context, session, images):
-        text += delta
-        if buffered is None:
-            yield delta
-        else:
-            buffered.append(delta)
+    async with closing_stream(client.chat_stream(prompt, additional_context, session, images)) as owned_stream:
+        async for delta in owned_stream:
+            if isinstance(delta, ReasoningDelta):
+                yield delta
+                continue
+            text += delta
+            if buffered is None:
+                yield delta
+            else:
+                buffered.append(delta)
     suffix = _marker_suffix(text, declined)
     final_text = text + suffix
     if fallback_turn is not None and should_fallback is not None and should_fallback(final_text):
         if on_router_fallback is not None:
             on_router_fallback("no_tool_call")
-        async for chunk in fallback_turn():
-            yield chunk
+        async with closing_stream(fallback_turn()) as owned_stream:
+            async for chunk in owned_stream:
+                yield chunk
         return
     if buffered is not None:
         for chunk in buffered:
@@ -291,7 +299,8 @@ async def _router_decision(client, router_prompt: str) -> tuple[str, bool]:
     optimisation -- and a fallback answer is NOT a declined one, so a failed
     classification keeps today's reporting instead of claiming a verdict."""
     try:
-        decision = await client.chat(router_prompt, [], None)
+        with suppress_reasoning(client):
+            decision = await client.chat(router_prompt, [], None)
     except SubstrateCopilotError as exc:
         _log.warning("[router] classification turn failed, answering natively: %s", exc)
         return "", False

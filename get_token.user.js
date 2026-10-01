@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      1.0.78
+// @version      1.0.82
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://microsoft365.com/*
@@ -33,7 +33,7 @@
 (function() {
     'use strict';
 
-    const SCRIPT_VERSION = '1.0.78';
+    const SCRIPT_VERSION = '1.0.82';
     const SUBSTRATE_WS_RE = /wss:\/\/substrate\.office\.com\/.*[?&]access_token=([^&]+)/;
     const M365_RT_CLIENT_ID = '4765445b-32c6-49b0-83e6-1d93765276ca';
     // Consumer (personal-account) Copilot puts its ChatAI token in the chat
@@ -90,6 +90,7 @@
     // from the copilot.microsoft.com chat socket URL.
     let latestConsumerToken = '';
     let latestConsumerIdentity = '';
+    const pushActivation = { m365: true, consumer: true };
 
     // Store the latest captured chat payloads (for mode-field comparison)
     // Each entry: { time, mode, raw } where raw is the parsed arguments[0] object
@@ -123,27 +124,27 @@
             media_auth_pushed: '媒体鉴权已推送',
             no_media_auth: '尚未捕获 Media Bearer。请先在 M365 页面生成/播放一次媒体。',
             consumer_captured: '✓ ChatAI Token 已捕获',
-            consumer_not_captured: '⚠ 尚未捕获 ChatAI Token；此入口仅用于 ChatAI 协议会话。',
-            no_consumer_token: '尚未捕获 ChatAI Token。此入口只适用于实际使用 ChatAI 协议的会话。',
-            consumer_use_substrate: '当前会话已捕获 Substrate，请使用上方 Substrate 入口。',
+            consumer_not_captured: '尚未捕获 ChatAI Token。请在 copilot.microsoft.com 或 copilot.com 登录同一微软个人账户并发送消息；只有页面实际建立 ChatAI 会话才会捕获。若页面仅使用 Substrate，本脚本无法生成 ChatAI 凭据。',
+            no_consumer_token: '尚未捕获 ChatAI Token。请在 copilot.microsoft.com 或 copilot.com 登录同一微软个人账户并发送消息；若页面仅使用 Substrate，本脚本无法生成 ChatAI 凭据。',
             no_consumer_identity: '无法把 ChatAI Token 对应到唯一的微软账户。请在当前个人版账户中重新发送一条消息后再推送。',
             consumer_pushed: 'ChatAI 凭据已推送，Cookie 数：',
             // 按协议分区，个人账号也可能使用 Substrate。
             section_m365: ' Substrate（工作/个人）',
-            section_consumer: ' ChatAI 兼容入口',
+            section_consumer: ' ChatAI（个人）',
             section_capture_scope: '仅 Substrate',
             protocol_captured: '已捕获',
             protocol_missing: '未捕获此协议',
             protocol_waiting: '等待捕获',
-            // 保留跨站 Cookie 等操作，不因协议状态移除整个分区。
-            other_product: '其他协议 / 跨站功能',
-            other_product_hint: '（按已捕获凭据选择，保留跨站操作）',
             other_site_m365: '需在 M365 Copilot 或 copilot.com 操作',
             other_site_consumer: '需在 copilot.microsoft.com 或 copilot.com 操作',
             consumer_desc: '推送 Cookie + ChatAI Token 到当前账户，不接收 Substrate Token',
             consumer_one_click: '推送 ChatAI',
+            push_action: '推送后使用',
+            save_activate: '保存并使用',
+            save_only: '仅保存（不切换当前协议）',
             m365_needs_site: '请在 M365 Copilot 或 copilot.com 的 Substrate 会话中开始正常对话后推送。',
-            consumer_needs_site: '请在使用 ChatAI 协议的 Copilot 会话中采集凭据；Substrate 会话应使用对应入口。',
+            no_substrate_identity: 'Substrate Token 的捕获主体缺失或已变化。请用当前账户发送新消息，重新捕获后再推送。',
+            consumer_needs_site: '请在 copilot.microsoft.com 或 copilot.com 登录同一微软个人账户并发送消息，等待真实 ChatAI 会话；仅有 Substrate 会话时无法推送 ChatAI 凭据。',
             quick_setup_desc: '全量推送 Token 和 Cookie 到当前账户',
             one_click: '一键推送',
             manual_config: ' 手动配置',
@@ -218,25 +219,26 @@
             media_auth_pushed: 'Media auth pushed',
             no_media_auth: 'No Media Bearer captured yet. Generate or play media in M365 first.',
             consumer_captured: '✓ ChatAI token captured',
-            consumer_not_captured: '⚠ No ChatAI token captured; this entry is only for ChatAI sessions.',
-            no_consumer_token: 'No ChatAI token captured. This entry only applies to sessions using the ChatAI protocol.',
-            consumer_use_substrate: 'Substrate was captured for this session. Use the Substrate entry above.',
+            consumer_not_captured: 'No ChatAI token captured. Sign in with the same personal Microsoft account at copilot.microsoft.com or copilot.com and send a message. Capture requires an actual ChatAI session; this script cannot create ChatAI credentials when the page only uses Substrate.',
+            no_consumer_token: 'No ChatAI token captured. Sign in with the same personal Microsoft account at copilot.microsoft.com or copilot.com and send a message. A Substrate-only session cannot supply ChatAI credentials.',
             no_consumer_identity: 'The ChatAI token could not be matched to one Microsoft account. Send a new message from the current personal account, then push again.',
             consumer_pushed: 'ChatAI credentials pushed, cookies: ',
             section_m365: 'Substrate (work/personal)',
-            section_consumer: 'ChatAI compatibility',
+            section_consumer: 'ChatAI (personal)',
             section_capture_scope: 'Substrate only',
             protocol_captured: 'captured',
             protocol_missing: 'protocol not captured',
             protocol_waiting: 'waiting for capture',
-            other_product: 'Other protocol / cross-site actions',
-            other_product_hint: '(choose by captured credentials; cross-site actions remain available)',
             other_site_m365: 'open M365 Copilot or copilot.com to use',
             other_site_consumer: 'open copilot.microsoft.com or copilot.com to use',
             consumer_desc: 'Push cookies + ChatAI token, not a Substrate token, to the current account.',
             consumer_one_click: 'Push ChatAI',
+            push_action: 'Use after push',
+            save_activate: 'Save and use',
+            save_only: 'Save only (keep current protocol)',
             m365_needs_site: 'Start a conversation in a Substrate session on M365 Copilot or copilot.com before pushing.',
-            consumer_needs_site: 'Capture credentials in a Copilot session using ChatAI; use the Substrate entry for Substrate sessions.',
+            no_substrate_identity: 'The Substrate token has no matching capture-time identity. Send a new message from the current account, then capture and push again.',
+            consumer_needs_site: 'Sign in with the same personal Microsoft account at copilot.microsoft.com or copilot.com, send a message and wait for a real ChatAI session. A Substrate-only session cannot supply ChatAI credentials.',
             quick_setup_desc: 'Push Token and Cookies to the current account.',
             one_click: 'Push',
             manual_config: 'Manual Config',
@@ -386,12 +388,12 @@
         return value;
     }
 
-    function getConsumerStorageEntries() {
+    function getConsumerStorageEntries(storage = localStorage) {
         const entries = [];
         try {
-            for (let i = 0; i < localStorage.length; i++) {
-                const key = localStorage.key(i);
-                if (typeof key === 'string') entries.push([key, localStorage.getItem(key)]);
+            for (let i = 0; i < storage.length; i++) {
+                const key = storage.key(i);
+                if (typeof key === 'string') entries.push([key, storage.getItem(key)]);
             }
         } catch (e) {}
         return entries;
@@ -502,7 +504,7 @@
         const fields = [
             ['homeAccountId', 'home_account_id'],
             ['localAccountId', 'local_account_id'],
-            ['tenantId', 'tenant_id'],
+            ['tenantId', 'tenant_id', 'realm'],
             ['environment'],
         ];
         let compared = false;
@@ -586,6 +588,56 @@
             cachedConsumerEmail.email = cookieEmail;
         }
         return cookieEmail;
+    }
+
+    // Bind only to a unique MSAL account. JWE key bytes are not identity claims;
+    // email remains display metadata, never the account identifier.
+    function readSubstrateIdentity(cookies, token) {
+        const empty = { account_id: '', email: '' };
+        const entries = getConsumerStorageEntries();
+        if (typeof sessionStorage !== 'undefined') entries.push(...getConsumerStorageEntries(sessionStorage));
+        const accounts = getStructuredConsumerAccounts(entries);
+        const filters = getActiveConsumerFilters(entries);
+        const activeIds = new Set(filters.map(consumerFilterId).filter(Boolean));
+        const tokenIds = new Set();
+        for (const [, raw] of entries) {
+            const record = parseConsumerStorageJson(raw);
+            if (!record || typeof record !== 'object' || Array.isArray(record)) continue;
+            const type = consumerRecordValue(record, ['credentialType', 'credential_type']);
+            const secret = consumerRecordValue(record, ['secret', 'accessToken', 'access_token']);
+            if (type.toLowerCase() !== 'accesstoken' || secret !== token) continue;
+            const id = consumerAccountId(record, '');
+            if (/^(home|local):/.test(id)) tokenIds.add(id);
+        }
+        if (tokenIds.size > 1 || activeIds.size > 1) return empty;
+        const tokenId = Array.from(tokenIds)[0] || '';
+        const activeId = Array.from(activeIds)[0] || '';
+        if (tokenId && activeId && tokenId !== activeId) return empty;
+        const selectedId = tokenId || activeId || (accounts.length === 1 ? accounts[0].id : '');
+        if (!/^(home|local):[a-z0-9._-]+$/.test(selectedId)) return empty;
+        const selected = accounts.find(account => account.id === selectedId);
+        if (selected && filters.some(filter => !consumerFilterMatchesAccount(filter, selected))) return empty;
+        if (selected && selected.email) return { account_id: selectedId, email: selected.email };
+        const identityCookies = (Array.isArray(cookies) ? cookies : []).filter(cookie => {
+            const domain = String(cookie && cookie.domain || '').replace(/^\./, '').toLowerCase();
+            return domain === 'live.com' || domain.endsWith('.live.com');
+        });
+        return { account_id: selectedId, email: getIdentityCookieEmail(identityCookies) };
+    }
+
+    let capturedSubstrateIdentity = { token: '', account_id: '' };
+    function captureSubstrateIdentity(token) {
+        const identity = readSubstrateIdentity([], token);
+        capturedSubstrateIdentity = { token, account_id: identity.account_id };
+    }
+
+    function getSubstrateIdentity(cookies, token) {
+        const identity = readSubstrateIdentity(cookies, token);
+        if (capturedSubstrateIdentity.token !== token || !capturedSubstrateIdentity.account_id
+            || identity.account_id !== capturedSubstrateIdentity.account_id) {
+            return { account_id: '', email: '' };
+        }
+        return identity;
     }
 
     function getConsumerAccountId() {
@@ -709,6 +761,7 @@
         const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
         if (!guid.test(tenantId) || !guid.test(objectId)) return false;
         latestToken = String(responseData.access_token || '').trim();
+        captureSubstrateIdentity(latestToken);
         latestRefreshToken = refreshToken;
         latestRefreshTokenBinding = {
             client_id: M365_RT_CLIENT_ID,
@@ -1029,6 +1082,7 @@
         }
         if (match) {
             latestToken = match[1];
+            captureSubstrateIdentity(latestToken);
             showPanel();
             // Intercept .send() to capture outgoing SignalR frames. We capture ALL
             // non-heartbeat frames (not just chat) because the mode/model selection
@@ -1301,13 +1355,21 @@
             (typeof GM !== 'undefined' && GM.cookie && typeof GM.cookie.list === 'function');
     }
 
-    async function pushUserToken(base, token) {
+    async function pushUserToken(base, token, activate = pushActivation.m365) {
         const key = getUserApiKey();
         if (!key) throw new Error(tr('no_user_key'));
+        let cookies = [];
+        if (token.split('.').length === 5 && hasGMCookie()) {
+            try { cookies = await getAllCookies(); } catch (e) { /* Display metadata is optional. */ }
+        }
+        const identity = getSubstrateIdentity(cookies, token);
+        if (token.split('.').length === 5 && !identity.account_id) throw new Error(tr('no_substrate_identity'));
+        const body = { token, activate, substrate_account_id: identity.account_id };
+        if (token.split('.').length === 5) body.display_email = identity.email;
         const r = await gmFetch(base + '/user/account/token', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-            body: JSON.stringify({ token })
+            body: JSON.stringify(body)
         });
         return { response: r, data: await r.json() };
     }
@@ -1323,10 +1385,8 @@
         return { response: r, data: await r.json() };
     }
 
-    // Push a consumer (personal-account) Copilot snapshot: cookies + the ChatAI
-    // token captured off the copilot.microsoft.com chat socket. Distinct endpoint
-    // from /cookies because the server must NOT try to inject or refresh it.
-    async function pushUserConsumer(base, cookies) {
+    // ChatAI credentials have their own endpoint and isolated cookie jar.
+    async function pushUserConsumer(base, cookies, activate = pushActivation.consumer) {
         const key = getUserApiKey();
         if (!key) throw new Error(tr('no_user_key'));
         const email = getConsumerAccountEmail(cookies, latestConsumerToken);
@@ -1339,6 +1399,7 @@
         // their grants, and the server rejects a mismatched pair with a 400.
         const binding = getConsumerRefreshBinding(latestConsumerToken);
         const body = {
+            activate,
             cookies,
             username,
             email,
@@ -1472,10 +1533,7 @@
     async function pushToken() {
         const base = getProxyBase();
         if (!base) { alert(tr('enter_proxy_first')); return; }
-        // The substrate token only ever appears on an M365 host, so anywhere else
-        // -- the consumer site AND the login pages -- say which page to open
-        // instead of "not captured yet", which would tell the user to keep
-        // waiting on a page that can never produce one.
+        // A host alone does not establish which protocol this session uses.
         if (!latestToken) { alert(IS_M365_SITE ? tr('no_token_ws') : tr('m365_needs_site')); return; }
         try {
             const ur = await pushUserToken(base, latestToken);
@@ -1499,7 +1557,11 @@
         if (btn) { btn.disabled = true; btn.textContent = tr('fetching'); }
         try {
             if (latestToken) {
-                try { await pushUserToken(base, latestToken); } catch (e) {}
+                const ur = await pushUserToken(base, latestToken);
+                if (!ur.response.ok) {
+                    alert(tr('token_push_failed') + (ur.data.error?.message || ur.data.error));
+                    return;
+                }
             }
             const cookies = await getAllCookies();
             if (!cookies.length) { alert(tr('no_cookies')); return; }
@@ -1529,13 +1591,12 @@
         const base = getProxyBase();
         if (!base) { alert(tr('enter_proxy_first')); return; }
         if (!hasGMCookie()) { alert(tr('gm_unavailable_alert')); return; }
-        // The ChatAI token only appears on the consumer host, so from an M365 tab
-        // name the page to open rather than repeating "not captured yet".
+        // Never substitute a captured Substrate token for missing ChatAI credentials.
         if (!latestConsumerToken) {
-            if (latestToken) alert(tr('consumer_use_substrate'));
-            else alert(IS_CONSUMER_SITE ? tr('no_consumer_token') : tr('consumer_needs_site'));
+            alert(IS_CONSUMER_SITE ? tr('no_consumer_token') : tr('consumer_needs_site'));
             return;
         }
+        const activate = pushActivation.consumer;
         const btn = document.getElementById('m365-push-consumer');
         // The label lives in a child span (icon + text), so write the span and
         // never btn.textContent -- that would wipe the icon out of the button.
@@ -1545,7 +1606,7 @@
         try {
             const cookies = await getAllCookies();
             if (!cookies.length) { alert(tr('no_cookies')); return; }
-            const cr = await pushUserConsumer(base, cookies);
+            const cr = await pushUserConsumer(base, cookies, activate);
             alert(cr.response.ok
                 ? tr('consumer_pushed') + (cr.data.cookies || cookies.length)
                 : tr('failed') + (cr.data.error?.message || cr.data.error));
@@ -1656,8 +1717,7 @@
         showPanel();
     }
 
-    // 按捕获协议排列分区；未捕获时才以站点作为初始提示。
-    // 保留所有按钮 ID 与跨站 Cookie 操作，只折叠另一分区，不移除它。
+    // Both entries stay visible. Host hints never count as captured credentials.
     function siteBadge(isHere, otherKey) {
         const substrate = otherKey === 'other_site_m365';
         const captured = Boolean(substrate ? latestToken : latestConsumerToken);
@@ -1670,12 +1730,22 @@
         return `<span style="margin-left:auto; font-weight:500; font-size:10px; color:${color};">${text}</span>`;
     }
 
+    function pushActionSwitch(provider) {
+        return `<label style="margin-left:10px; display:inline-flex; align-items:center; gap:6px; flex-shrink:0; color:#94a3b8; font-size:10px; font-weight:500; cursor:pointer;">
+            <span>${tr('push_action')}</span>
+            <button type="button" role="switch" id="m365-activate-${provider}" aria-label="${tr('push_action')} · ${provider === 'm365' ? 'Substrate' : 'ChatAI'}"
+                aria-checked="${pushActivation[provider]}" title="${tr(pushActivation[provider] ? 'save_activate' : 'save_only')}"
+                class="m365-push-switch"><span></span></button>
+        </label>`;
+    }
+
     function m365Section() {
         const sectionTitle = tr('section_m365');
         return `
                 <div style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
                     <div style="font-size:12px; color:#60f2ff; font-weight:700; margin-bottom:4px; display:flex; align-items:center;">
                         <span style="display:flex; align-items:center;">${ic('bolt')}${sectionTitle}</span>
+                        ${pushActionSwitch('m365')}
                         ${siteBadge(IS_M365_SITE, 'other_site_m365')}
                     </div>
                     <div style="font-size:10px; color:#475569; margin-bottom:8px; display:flex; align-items:center;">
@@ -1685,12 +1755,13 @@
                             <span style="color:${hasGMCookie() ? '#22c55e' : '#f59e0b'};">Cookie ${hasGMCookie() ? '&#10003;' : '&#9888;'}</span>
                         </span>
                     </div>
-                    <button id="m365-one-click" style="width:100%; padding:10px 0; border:none;
+                    <button id="m365-one-click" ${!latestToken ? 'disabled aria-disabled="true"' : ''} style="width:100%; padding:10px 0; border:none;
                             border-radius:10px; background:linear-gradient(135deg,#60f2ff,#8c6bff 55%,#ffd76f); color:#fff;
-                            cursor:pointer; font-weight:700; font-size:13px; letter-spacing:0.3px;
+                            cursor:${latestToken ? 'pointer' : 'not-allowed'}; opacity:${latestToken ? '1' : '0.5'}; font-weight:700; font-size:13px; letter-spacing:0.3px;
                             transition:opacity 0.2s; display:flex; align-items:center; justify-content:center; gap:6px;">
                         ${ic('rocket')}<span id="m365-one-click-text">${tr('one_click')}</span>
                     </button>
+                    ${latestToken ? '' : '<div style="font-size:10px; color:#94a3b8; margin-top:6px;">' + tr('m365_needs_site') + '</div>'}
 
                     <details style="margin-top:10px;">
                         <summary style="font-size:11px; color:#60f2ff; font-weight:600; cursor:pointer; list-style:none; outline:none;">${ic('gear')}${tr('manual_config')} <span style="color:#475569; font-weight:400;">${tr('click_expand')}</span></summary>
@@ -1731,26 +1802,26 @@
     }
 
     function consumerSection() {
-        const substrateOnly = Boolean(latestToken) && !latestConsumerToken;
         return `
                 <div style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
                     <div style="font-size:12px; color:#10b981; font-weight:700; margin-bottom:4px; display:flex; align-items:center;">
                         <span style="display:flex; align-items:center;">${ic('fox')}${tr('section_consumer')}</span>
+                        ${pushActionSwitch('consumer')}
                         ${siteBadge(IS_CONSUMER_SITE, 'other_site_consumer')}
                     </div>
                     <div style="font-size:10px; color:#475569; margin-bottom:8px; display:flex; align-items:center;">
                         <span>${tr('consumer_desc')}</span>
                         <span style="margin-left:auto; color:${latestConsumerToken ? '#22c55e' : '#f59e0b'};">${latestConsumerToken ? tr('consumer_captured') : '&#9888;'}</span>
                     </div>
-                    <button id="m365-push-consumer" ${substrateOnly ? 'disabled aria-disabled="true"' : ''}
+                    <button id="m365-push-consumer" ${!latestConsumerToken ? 'disabled aria-disabled="true"' : ''}
                             aria-describedby="m365-consumer-status" style="width:100%; padding:10px 0; border:none;
                             border-radius:10px; background:linear-gradient(135deg,#10b981,#0d9488); color:#fff;
-                            cursor:${substrateOnly ? 'not-allowed' : 'pointer'}; opacity:${substrateOnly ? '0.5' : '1'};
+                            cursor:${!latestConsumerToken ? 'not-allowed' : 'pointer'}; opacity:${!latestConsumerToken ? '0.5' : '1'};
                             font-weight:700; font-size:13px; letter-spacing:0.3px;
                             transition:opacity 0.2s; display:flex; align-items:center; justify-content:center; gap:6px;">
                         &#129302; <span id="m365-push-consumer-text">${tr('consumer_one_click')}</span>
                     </button>
-                    <div id="m365-consumer-status" style="font-size:10px; color:#94a3b8; margin-top:6px;">${substrateOnly ? tr('consumer_use_substrate') : latestConsumerToken ? '' : tr('consumer_not_captured')}</div>
+                    <div id="m365-consumer-status" style="font-size:10px; color:#94a3b8; margin-top:6px;">${latestConsumerToken ? '' : tr('consumer_not_captured')}</div>
                 </div>`;
     }
 
@@ -1772,28 +1843,15 @@
                 </details>`;
     }
 
-    // Collapsed wrapper for the product the current tab cannot feed.
-    function otherProductDrawer(inner) {
-        return `
-                <details style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
-                    <summary style="font-size:11px; color:#64748b; font-weight:600; cursor:pointer; list-style:none; outline:none;">${ic('gear')}${tr('other_product')} <span style="color:#475569; font-weight:400;">${tr('other_product_hint')}</span></summary>
-                    ${inner}
-                </details>`;
-    }
 
     function panelBody() {
-        if (latestToken) {
-            return m365Section() + captureSection() + otherProductDrawer(consumerSection());
-        }
-        if (IS_CONSUMER_SITE) {
-            return consumerSection() + otherProductDrawer(m365Section() + captureSection());
-        }
-        if (IS_M365_SITE) {
-            return m365Section() + captureSection() + otherProductDrawer(consumerSection());
-        }
-        // Neither product host (login pages, other Microsoft domains): we cannot
-        // tell where the user is headed, so show both and let them choose.
-        return m365Section() + consumerSection() + captureSection();
+        return `<style>
+            #m365-token-panel .m365-push-switch { width:30px; height:18px; padding:2px; border:1px solid #475569; border-radius:999px; background:#334155; cursor:pointer; box-sizing:border-box; display:inline-flex; align-items:center; transition:background .15s,border-color .15s; }
+            #m365-token-panel .m365-push-switch span { width:12px; height:12px; border-radius:50%; background:#e2e8f0; transform:translateX(0); transition:transform .15s; pointer-events:none; }
+            #m365-token-panel .m365-push-switch[aria-checked="true"] { background:#0891b2; border-color:#22d3ee; }
+            #m365-token-panel .m365-push-switch[aria-checked="true"] span { transform:translateX(12px); background:#fff; }
+            #m365-token-panel .m365-push-switch:focus-visible { outline:2px solid #a5f3fc; outline-offset:3px; }
+        </style>` + m365Section() + consumerSection() + captureSection();
     }
 
     function showPanel() {
@@ -1878,6 +1936,14 @@
         on('m365-push-consumer', () => pushConsumer());
         on('m365-one-click', () => oneClickSetup());
         on('m365-reset-proxy-url', () => resetSavedProxyBase());
+        for (const provider of ['m365', 'consumer']) {
+            const choice = document.getElementById('m365-activate-' + provider);
+            if (choice) choice.onclick = () => {
+                pushActivation[provider] = !pushActivation[provider];
+                choice.setAttribute('aria-checked', String(pushActivation[provider]));
+                choice.title = tr(pushActivation[provider] ? 'save_activate' : 'save_only');
+            };
+        }
         on('m365-reset-user-key', () => resetSavedUserKey());
         on('m365-push-payload', () => pushPayload());
         on('m365-close-panel', () => panel.remove());

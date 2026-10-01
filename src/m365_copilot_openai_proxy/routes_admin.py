@@ -179,13 +179,13 @@ def register_admin_account_key_routes(app: FastAPI, require_admin: Callable[[Req
             if not ok:
                 return _json_err(502, "Consumer refresh failed; check the server log")
             acc = app.state.account_store.get(acc_id)
-            total = len(list(getattr(acc, "cookies", []) or [])) if acc else 0
+            total = len(acc.consumer_cookies) if acc else 0
             return {
                 "status": "ok",
                 "provider": "consumer",
                 "injected": total,
                 "total": total,
-                "cookie_valid": bool(acc.cookie_valid) if acc else False,
+                "cookie_valid": bool(total),
                 "account": _account_public(acc) if acc else None,
             }
         # Re-inject the LAST pushed cookies. ensure_fresh() no-ops for manual

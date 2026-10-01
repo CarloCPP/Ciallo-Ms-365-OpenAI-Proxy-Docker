@@ -158,7 +158,7 @@ def test_bad_push_preserves_account_and_key_state(tmp_path, token, provider):
     store = app.state.account_store
     account = None
     if provider != "unbound":
-        account = store.add(name="fixture", token=_jwt())
+        account = store.add(name="fixture", token=_jwt() if provider == "m365" else "")
         if provider == "consumer":
             store.set_consumer_auth(
                 account.id, [{"name": "fixture", "value": "cookie", "domain": ".copilot.com"}],

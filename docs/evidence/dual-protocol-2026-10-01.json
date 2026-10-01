@@ -1,0 +1,247 @@
+{
+  "target": "ciallo-ms365-proxy-multi",
+  "regression": {
+    "passed": 2646,
+    "skipped": 3,
+    "warnings": 11
+  },
+  "deployment": {
+    "backup": "/tmp/dual-review-20261001-153349.tar.gz",
+    "sha256": {
+      "src/m365_copilot_openai_proxy/account_store.py": "c4ad176c9c6740db3de55a28ae5ac9e2e9815b36e3ba5d848d6f6ad9b4c752bb",
+      "src/m365_copilot_openai_proxy/routes_user.py": "71b501939e8a90f3f3c6b9683af54711024e7e0df5267867b081143bf62bb5b0",
+      "src/m365_copilot_openai_proxy/routes_admin.py": "32f97220fb4284e5e570d2af2a4c5ca101d4ac6abd8010f59b701365a4faa272",
+      "src/m365_copilot_openai_proxy/template_user_account_js.py": "5124293947d2a8d717a84d0f692108ec87dd8f2e7bdefd0cc53db4cd8f1476e0",
+      "get_token.user.js": "4192b67b9f1b7a895627b8740e70fa80091ef663afa663d770241be0baec262f"
+    }
+  },
+  "cold_start": {
+    "http": 200,
+    "cookie_valid": true,
+    "total": 43,
+    "provider": "consumer",
+    "renewed": true,
+    "expires_in": 28798,
+    "substrate_preserved": true,
+    "rt_present": true
+  },
+  "recovery": {
+    "status": 200,
+    "body": {
+      "status": "ok",
+      "provider": "m365",
+      "cookies": 43
+    },
+    "expires_in": 12403
+  },
+  "matrix": {
+    "results": [
+      {
+        "account": "acct_2eed3918214f",
+        "protocol": "chat/completions",
+        "planner": "native",
+        "model": "Copilot_快速答复",
+        "first_http": 200,
+        "actual_planner": null,
+        "marker_observed": true,
+        "stream_terminal": true,
+        "pass": true
+      },
+      {
+        "account": "acct_2eed3918214f",
+        "protocol": "chat/completions",
+        "planner": "router",
+        "model": "claude-sonnet-4-6",
+        "first_http": 400,
+        "actual_planner": null,
+        "error": {
+          "message": "M365 Copilot refused this turn instead of answering (conversation mode 'Claude_Sonnet') (upstream result: InternalError). If every request in this mode does this, the mode is not available for this account -- switch to another mode.",
+          "type": "http_error"
+        },
+        "pass": false
+      },
+      {
+        "account": "acct_2eed3918214f",
+        "protocol": "chat/completions",
+        "planner": "studio",
+        "model": "claude-sonnet-4-6",
+        "first_http": 400,
+        "actual_planner": null,
+        "error": {
+          "message": "M365 Copilot refused this turn instead of answering (conversation mode 'Claude_Sonnet') (upstream result: InternalError). If every request in this mode does this, the mode is not available for this account -- switch to another mode.",
+          "type": "http_error"
+        },
+        "pass": false
+      },
+      {
+        "account": "acct_2eed3918214f",
+        "protocol": "messages",
+        "planner": "router",
+        "model": "claude-sonnet-4-6",
+        "first_http": 400,
+        "actual_planner": null,
+        "error": {
+          "message": "M365 Copilot refused this turn instead of answering (conversation mode 'Claude_Sonnet') (upstream result: InternalError). If every request in this mode does this, the mode is not available for this account -- switch to another mode.",
+          "type": "http_error"
+        },
+        "pass": false
+      },
+      {
+        "account": "acct_2eed3918214f",
+        "protocol": "responses",
+        "planner": "router",
+        "model": "claude-sonnet-4-6",
+        "first_http": 400,
+        "actual_planner": null,
+        "error": {
+          "message": "M365 Copilot refused this turn instead of answering (conversation mode 'Claude_Sonnet') (upstream result: InternalError). If every request in this mode does this, the mode is not available for this account -- switch to another mode.",
+          "type": "http_error"
+        },
+        "pass": false
+      },
+      {
+        "account": "acct_b1172aff4361",
+        "protocol": "chat/completions",
+        "planner": "router",
+        "model": "copilot",
+        "first_http": 200,
+        "actual_planner": "router",
+        "tool_valid": true,
+        "executed": "read_file",
+        "final_http": 200,
+        "marker_observed": true,
+        "pass": true
+      },
+      {
+        "account": "acct_b1172aff4361",
+        "protocol": "messages",
+        "planner": "router",
+        "model": "copilot",
+        "first_http": 429,
+        "actual_planner": null,
+        "error": {
+          "type": "rate_limit_error",
+          "message": "Copilot throttled this request (mode=smart); upstream reported nextAvailableAt=2026-10-02T02:12:54+00:00. frames: <{\"event\": \"connected\", \"requestId\": \"595032c815cd3ed0eab71eb7575c8efe\", \"id\": \"0\"} >{\"event\": \"setOptions\", \"supportedFeatures\": [\"partial-generated-images\"], \"supportedCards\": [\"image\"], \"supportedUIComponents\": {}, \"ads\": {\"supportedTypes\": []}, \"supportedActions\": []} >{\"event\": \"reportLocalConsents\", \"grantedConsents\": []} >send(mode='smart', parts=1, len=403) <{\"event\": \"chatMessageError\", \"messageId\": \"J2HuG2ncdXNiaVH9wBAjq\", \"errorCode\": \"throttled\", \"id\": \"0.0001\", \"errorDetail\": {\"type\": \"throttled\", \"nextAvailableAt\": \"2026-10-02T02:12:54+00:00\"}}"
+        },
+        "pass": false
+      },
+      {
+        "account": "acct_b1172aff4361",
+        "protocol": "responses",
+        "planner": "router",
+        "model": "copilot",
+        "first_http": 429,
+        "actual_planner": null,
+        "error": {
+          "message": "Copilot throttled this request (mode=smart); upstream reported nextAvailableAt=2026-10-02T02:12:54+00:00. frames: <{\"event\": \"connected\", \"requestId\": \"b5b8abe006f8926d6865fc8b3e76aa7a\", \"id\": \"0\"} >{\"event\": \"setOptions\", \"supportedFeatures\": [\"partial-generated-images\"], \"supportedCards\": [\"image\"], \"supportedUIComponents\": {}, \"ads\": {\"supportedTypes\": []}, \"supportedActions\": []} >{\"event\": \"reportLocalConsents\", \"grantedConsents\": []} >send(mode='smart', parts=1, len=403) <{\"event\": \"chatMessageError\", \"messageId\": \"WaUcMaCCp6UtdN4g4U1DK\", \"errorCode\": \"throttled\", \"id\": \"0.0001\", \"errorDetail\": {\"type\": \"throttled\", \"nextAvailableAt\": \"2026-10-02T02:12:54+00:00\"}}",
+          "type": "rate_limit_error",
+          "code": "rate_limit_exceeded"
+        },
+        "pass": false
+      },
+      {
+        "account": "acct_b1172aff4361",
+        "protocol": "chat/completions",
+        "planner": "native",
+        "model": "Copilot_快速答复",
+        "first_http": 200,
+        "actual_planner": null,
+        "marker_observed": true,
+        "stream_terminal": true,
+        "pass": true
+      }
+    ],
+    "studio_ready": false,
+    "restored_provider": "m365"
+  },
+  "available_model_followup": {
+    "results": [
+      {
+        "account": "acct_2eed3918214f",
+        "protocol": "chat/completions",
+        "planner": "router",
+        "model": "Copilot_快速答复",
+        "first_http": 200,
+        "actual_planner": "router",
+        "tool_valid": true,
+        "executed": "read_file",
+        "final_http": 200,
+        "marker_observed": true,
+        "pass": true
+      },
+      {
+        "account": "acct_2eed3918214f",
+        "protocol": "messages",
+        "planner": "router",
+        "model": "Copilot_快速答复",
+        "first_http": 200,
+        "actual_planner": "router",
+        "tool_valid": true,
+        "executed": "read_file",
+        "final_http": 200,
+        "marker_observed": true,
+        "pass": true
+      },
+      {
+        "account": "acct_2eed3918214f",
+        "protocol": "responses",
+        "planner": "router",
+        "model": "Copilot_快速答复",
+        "first_http": 200,
+        "actual_planner": "router",
+        "tool_valid": true,
+        "executed": "read_file",
+        "final_http": 200,
+        "marker_observed": true,
+        "pass": true
+      },
+      {
+        "account": "acct_2eed3918214f",
+        "protocol": "chat/completions",
+        "planner": "studio",
+        "model": "Copilot_快速答复",
+        "first_http": 200,
+        "actual_planner": "router",
+        "tool_valid": true,
+        "executed": "read_file",
+        "final_http": 200,
+        "marker_observed": true,
+        "pass": false,
+        "blocker": "Requested Studio fell back to Router; no identity-verified ready Studio agent."
+      }
+    ]
+  },
+  "epoch_isolation": {
+    "old_response_http": 400,
+    "old_response_error": {
+      "message": "Invalid or expired Responses previous_response_id.",
+      "type": "http_error"
+    },
+    "current": {
+      "m365": {
+        "stored": true,
+        "active": true,
+        "can_activate": true,
+        "identity_ready": true,
+        "refresh_mode": "manual"
+      },
+      "consumer": {
+        "stored": true,
+        "active": false,
+        "can_activate": true,
+        "identity_ready": true,
+        "refresh_mode": "rt"
+      }
+    }
+  },
+  "full_acceptance_passed": false,
+  "ui_evidence": [
+    "Userscript 1.0.81 real copilot.com WebSocket capture and save-only push; captured subject persisted; provider remained m365.",
+    "User page Chinese/English inspected; both slots stored, Substrate manual and ChatAI RT; explicit switch succeeded."
+  ],
+  "blockers": [
+    "Studio lacks a ready subject-bound agent; actual requests fell back to Router.",
+    "Consumer smart-mode Messages and Responses tool loop blocked by real 429; nextAvailableAt 2026-10-02T02:12:54+00:00."
+  ],
+  "restored_provider": "m365"
+}

@@ -170,7 +170,7 @@ class RefreshScheduler:
 
     def _keepalive_due(self, account) -> bool:
         """True if a cdp account's cookie is close enough to expiry to refresh."""
-        if account.token_source != "cdp":
+        if account.provider != "m365" or account.token_source != "cdp":
             return False
         if not account.cookie_valid:
             return False
@@ -242,6 +242,8 @@ class RefreshScheduler:
             "consumer_refresh_token_client_id",
             "consumer_refresh_token_scope",
             "proxy_url",
+            "protocol_epoch",
+            "consumer_cookies",
         )
         snapshot = json.dumps([getattr(account, name, "") for name in fields])
         return hashlib.sha256(snapshot.encode("utf-8")).hexdigest()
@@ -289,7 +291,7 @@ class RefreshScheduler:
         )
         return CamoufoxConsumerGate(
             self._consumer_profile_dir(account_id, consumer_account_id),
-            seed_cookies=list(getattr(account, "cookies", []) or []),
+            seed_cookies=list(getattr(account, "consumer_cookies", []) or []),
             previous_token=str(getattr(account, "consumer_token", "") or ""),
             proxy_url=resolve_account_proxy(account),
         )
@@ -383,6 +385,7 @@ class RefreshScheduler:
         previous_identity_type = getattr(
             account, "consumer_identity_type", ""
         )
+        epoch = account.protocol_epoch
         gate = self._build_consumer_gate(account_id, account)
         async with self._lock:
             ulog(f"Consumer refresh starting Camoufox for {account_id}")
@@ -455,6 +458,8 @@ class RefreshScheduler:
             str(auth.get("identity_type") or "") or previous_identity_type,
             consumer_account_id=expected_account_id,
             expected_snapshot=snapshot,
+            expected_epoch=epoch,
+            activate=False,
             consumer_refresh_token=gate_refresh_token or None,
             consumer_refresh_token_client_id=gate_refresh_client_id or None,
             consumer_refresh_token_scope=gate_refresh_scope or None,
@@ -485,7 +490,7 @@ class RefreshScheduler:
         keepalive heals the account on its own. Backoff via _RECOVERY_RETRY_SECONDS
         keeps a genuinely dead session from relaunching Chromium every tick.
         """
-        if account.token_source != "cdp":
+        if account.provider != "m365" or account.token_source != "cdp":
             return False
         if account.cookie_valid:
             return False
@@ -971,8 +976,8 @@ class RefreshScheduler:
         )
 
     async def _refresh_one(self, account_id: str) -> bool:
-        account = self._accounts.get(account_id)
-        if account is None:
+        account = self._accounts.get_request_snapshot(account_id)
+        if account is None or account.provider != "m365":
             elog(f"Refresh failed: account {account_id} not found")
             return False
         # Preferred path: re-inject stored cookies + seed MSAL localStorage and
@@ -989,6 +994,8 @@ class RefreshScheduler:
             except Exception as exc:
                 elog(f"Refresh via cookie re-injection errored for {account_id}: {exc}")
             refreshed = self._accounts.get(account_id) or account
+            if not self._accounts.is_protocol_current(account_id, account.protocol_epoch, "m365"):
+                return False
             if refreshed.token and not self._needs_refresh(refreshed.token):
                 ulog(f"Refresh succeeded for {account_id}: token captured during cookie re-injection")
                 return True
@@ -1032,6 +1039,8 @@ class RefreshScheduler:
             ready = await loop.run_in_executor(
                 None, _wait_for_m365_page, account.cdp_port, _LAUNCH_TIMEOUT_SECONDS
             )
+            if not self._accounts.is_protocol_current(account_id, account.protocol_epoch, "m365"):
+                return False
             if not ready:
                 tabs = _cdp_tab_summary(account.cdp_port)
                 if "login.microsoftonline.com" in tabs or "login.live.com" in tabs:
@@ -1039,6 +1048,8 @@ class RefreshScheduler:
                 elog(f"Refresh failed for {account_id}: M365 page not ready on CDP port {account.cdp_port}; tabs: {tabs}")
                 return False
             token = await _cdp_extract_token(account.cdp_port, allow_nudge=True, expected_email=account.email)
+            if not self._accounts.is_protocol_current(account_id, account.protocol_epoch, "m365"):
+                return False
             if not token:
                 tabs = _cdp_tab_summary(account.cdp_port)
                 if "login.microsoftonline.com" in tabs or "login.live.com" in tabs:
@@ -1067,7 +1078,10 @@ class RefreshScheduler:
                 self._accounts.set_cookie_status(account_id, False)
                 elog(f"Refresh rejected for {account_id}: identity mismatch (account={account.email!r}, captured={captured_email!r})")
                 return False
-            self._accounts.update_token(account_id, token, token_source="cdp")
+            if self._accounts.update_token(
+                account_id, token, token_source="cdp", activate=False, expected_epoch=account.protocol_epoch,
+            ) is None:
+                return False
             # A successful CDP refresh means Microsoft just re-established the
             # session, so slide the cookie expiry forward every time. (Previously
             # the expiry was only advanced when already past, which left the
@@ -1079,6 +1093,8 @@ class RefreshScheduler:
             # what is actually present; a missing resource leaves the old value intact.
             try:
                 resources = await _cdp_extract_resource_tokens(account.cdp_port)
+                if not self._accounts.is_protocol_current(account_id, account.protocol_epoch, "m365"):
+                    return False
                 if resources.get("media"):
                     self._accounts.set_media_auth_token(account_id, resources["media"])
                 if resources.get("designer"):

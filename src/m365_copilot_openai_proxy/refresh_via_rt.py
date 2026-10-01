@@ -238,8 +238,9 @@ async def refresh_via_rt(accounts: AccountStore, account_id: str) -> bool:
     or the captured identity conflicts with the account's known email.
     """
     account = accounts.get(account_id)
-    if account is None:
+    if account is None or account.provider != "m365":
         return False
+    epoch = account.protocol_epoch
     rt = (getattr(account, "refresh_token", "") or "").strip()
     if not rt:
         return False
@@ -268,11 +269,16 @@ async def refresh_via_rt(accounts: AccountStore, account_id: str) -> bool:
             scope=M365_REFRESH_SCOPE,
         )
     except Exception as exc:
+        if not accounts.is_protocol_current(account_id, epoch, "m365"):
+            return False
         _defer_rt(accounts, account_id, rt)
         elog(
             f"RT refresh failed for {account_id}: HTTP error: {exc}; RT kept but "
             f"paused for {_RETRYABLE_ERROR_BACKOFF_SECONDS // 60}m, falling back to CDP"
         )
+        return False
+
+    if not accounts.is_protocol_current(account_id, epoch, "m365"):
         return False
 
     if resp.status_code != 200:
@@ -351,6 +357,7 @@ async def refresh_via_rt(accounts: AccountStore, account_id: str) -> bool:
         expected_access_token=expected_access_token,
         access_token=access_token,
         rotated_refresh_token=rotated if isinstance(rotated, str) else "",
+        expected_epoch=epoch,
     )
     if stored is None:
         ulog(

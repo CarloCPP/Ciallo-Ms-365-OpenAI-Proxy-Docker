@@ -79,7 +79,7 @@ def test_get_copilot_client_dispatches_consumer_account_through_adapter(tmp_path
         id="acct-1",
         provider="consumer",
         token=None,
-        cookies=[
+        consumer_cookies=[
             {"name": "_C_Auth", "value": "abc", "domain": ".copilot.microsoft.com"},
             {"name": "junk", "value": "x", "domain": ".example.com"},  # off keep-list
         ],
@@ -127,7 +127,7 @@ def test_a_typeerror_in_the_consumer_branch_is_not_downgraded_to_m365(tmp_path):
         id="acct-1",
         provider="consumer",
         token=None,
-        cookies=[{"name": "_C_Auth", "value": "abc", "domain": ".copilot.microsoft.com"}],
+        consumer_cookies=[{"name": "_C_Auth", "value": "abc", "domain": ".copilot.microsoft.com"}],
         consumer_token="chatai-token",
         consumer_identity_type="MSA",
     )

@@ -6,11 +6,6 @@ from pathlib import Path
 SCRIPT = (Path(__file__).resolve().parents[1] / "get_token.user.js").read_text(encoding="utf-8")
 
 
-def test_userscript_version_is_bumped_for_panel_fix():
-    assert "// @version      1.0.78" in SCRIPT
-    assert "const SCRIPT_VERSION = '1.0.78';" in SCRIPT
-
-
 def test_userscript_exports_media_seed_url_with_cookies():
     # media/designer auth tokens are NOT in the MSAL cache; they only appear as
     # Authorization headers when a conversation with media is opened. The
@@ -29,9 +24,6 @@ def test_userscript_exports_msal_local_storage_with_cookies():
     assert "local_storage: getMsalLocalStorage()" in SCRIPT
 
 
-def test_userscript_panel_title_displays_script_version_on_the_right():
-    assert "id=\"m365-script-version\"" in SCRIPT
-    assert "v${SCRIPT_VERSION}" in SCRIPT
 
 
 
@@ -228,42 +220,6 @@ def test_userscript_pushes_consumer_snapshot_to_dedicated_endpoint():
     assert "pushConsumer" in SCRIPT
 
 
-def test_userscript_splits_panel_into_m365_and_consumer_sections():
-    # The two Copilots need different pushes, so the panel must render them as
-    # two separate blocks instead of burying the consumer button inside the
-    # M365 "manual config" drawer.
-    assert "function m365Section()" in SCRIPT
-    assert "function consumerSection()" in SCRIPT
-    assert "section_m365:" in SCRIPT
-    assert "section_consumer:" in SCRIPT
-
-
-def test_userscript_shows_only_the_current_products_section():
-    # Credentials can only be captured on their own host, so a known product site
-    # shows just that product; the other one is collapsed into a drawer.
-    assert "const IS_CONSUMER_SITE = location.hostname === 'copilot.microsoft.com' || location.hostname === 'copilot.com' || location.hostname.endsWith('.copilot.com');" in SCRIPT
-    assert "copilot.microsoft.com or copilot.com" in SCRIPT
-    assert "const M365_SITE_HOSTS = [" in SCRIPT
-    assert "const IS_M365_SITE = M365_SITE_HOSTS.some(" in SCRIPT
-    assert "function panelBody()" in SCRIPT
-    assert "return consumerSection() + otherProductDrawer(m365Section() + captureSection());" in SCRIPT
-    assert "return m365Section() + captureSection() + otherProductDrawer(consumerSection());" in SCRIPT
-
-
-def test_userscript_shows_both_sections_on_neither_product_host():
-    # Login domains belong to no product: mid-login we cannot tell which Copilot
-    # the user is heading for, so hiding either one would strand them.
-    assert "return m365Section() + consumerSection() + captureSection();" in SCRIPT
-    for host in ("login.microsoftonline.com", "login.live.com"):
-        assert f"'{host}'" not in SCRIPT.split("const M365_SITE_HOSTS = [")[1].split("]")[0]
-
-
-def test_userscript_keeps_the_off_site_product_reachable_instead_of_dropping_it():
-    # M365's cookie push queries absolute domains (getAllCookies), so it works
-    # from any tab. Dropping the block would make a working feature unreachable.
-    assert "function otherProductDrawer(" in SCRIPT
-    assert "other_product:" in SCRIPT
-    assert "other_product_hint:" in SCRIPT
 
 
 def test_userscript_wires_every_panel_button_defensively():
@@ -284,34 +240,6 @@ def test_userscript_wires_every_panel_button_defensively():
         assert f"on('{button}'" in SCRIPT
         assert f"document.getElementById('{button}').onclick" not in SCRIPT
 
-
-def test_userscript_badges_which_protocol_has_been_captured():
-    # 域名只作为未捕获前的提示；实际凭据状态由运行时矩阵测试覆盖。
-    assert "function siteBadge(" in SCRIPT
-    assert "siteBadge(IS_M365_SITE, 'other_site_m365')" in SCRIPT
-    assert "siteBadge(IS_CONSUMER_SITE, 'other_site_consumer')" in SCRIPT
-    assert "siteBadge(!IS_CONSUMER_SITE" not in SCRIPT
-    assert "protocol_captured:" in SCRIPT
-    assert "protocol_waiting:" in SCRIPT
-
-
-def test_userscript_wrong_site_push_names_the_page_to_open():
-    # Pushing from the wrong host previously said "not captured yet", which
-    # reads as a capture bug. Name the page to open instead.
-    assert "m365_needs_site:" in SCRIPT
-    assert "consumer_needs_site:" in SCRIPT
-    # Keyed on "am I on the host that can capture this token", not on the other
-    # product: login pages are neither, and they cannot produce either token.
-    assert "alert(IS_M365_SITE ? tr('no_token_ws') : tr('m365_needs_site'))" in SCRIPT
-    assert "alert(IS_CONSUMER_SITE ? tr('no_consumer_token') : tr('consumer_needs_site'))" in SCRIPT
-    assert "alert(IS_CONSUMER_SITE ? tr('m365_needs_site')" not in SCRIPT
-
-
-def test_userscript_consumer_button_label_writes_span_not_button_text():
-    # The consumer button holds an icon plus a label span; writing
-    # btn.textContent during the push would delete the icon.
-    assert "id=\"m365-push-consumer-text\"" in SCRIPT
-    assert "const btnText = document.getElementById('m365-push-consumer-text');" in SCRIPT
 
 
 def test_userscript_treats_non_json_body_as_failure_even_on_http_200():

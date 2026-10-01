@@ -55,7 +55,9 @@ _ADMIN_I18N_JS = """const i18n={
     page_prev:'上一页',page_next:'下一页',page_info:'第 {cur}/{total} 页 · 共 {count} 条',page_size_label:'每页',page_size_unit:'条',
     batch_refresh:'批量刷新',batch_delete:'批量删除',batch_enable:'批量启用',batch_disable:'批量停用',batch_none:'请先选择项目',batch_confirm_delete:'确认批量删除所选项目？',
     confirm_del_account:'确定删除该账户？绑定它的 Key 将解绑。',confirm_del_key:'确定删除该 Key？',confirm_remove_token:'确定移除该账户 Token？',confirm_clear_stats:'确定清空这部分统计数据吗？',
-    valid_short:'有效',invalid_short:'无效',cookie_valid_short:'有效',cookie_invalid_short:'无效',cookie_updated_label:'刷新',cookie_expires_label:'过期',media_image:'图片',media_attach:'附件',refresh_auto:'自动',refresh_manual:'手动',refresh_unavailable:'不可用',no_accounts:'暂无账户',no_keys:'暂无 Key',unbound:'未绑定',acct_token_only:'Token',provider_consumer:'个人版',throttled_short:'限额',throttled_until_label:'上游称恢复于',
+    valid_short:'有效',invalid_short:'无效',cookie_valid_short:'有效',cookie_invalid_short:'无效',cookie_updated_label:'刷新',cookie_expires_label:'过期',media_image:'图片',media_attach:'附件',refresh_auto:'自动',refresh_manual:'手动',refresh_unavailable:'不可用',no_accounts:'暂无账户',no_keys:'暂无 Key',unbound:'未绑定',acct_token_only:'Token',provider_consumer:'个人版',throttled_short:'最近请求受限',throttled_until_label:'上游建议重试于',
+    protocol_stored:'已保存',protocol_missing:'未保存',protocol_current:'当前',protocol_refresh_manual:'当前协议需手动重新推送',protocol_refresh_rt:'当前协议使用 RT 续期',protocol_refresh_browser:'当前协议使用浏览器续期',protocol_saved_note:'仅表示凭据存在，不保证上游可用。仅当前协议自动续期。',
+    throttled_mode_unknown:'模式未记录',throttled_observed_label:'记录于',throttled_scope_note:'仅为最近一次请求的记录，不代表其他模式、网页或整个账号不可用。',
     rebind_prompt:'输入要绑定的账户 ID（留空则解绑）：',push_token_prompt:'粘贴该账户的 access_token 或 wss:// URL：',
     rebind_title:'改绑 M365 账号',rebind_unbind:'（无）',rebind_confirm:'确定',
     title_update_token:'更新 Token',btn_update:'更新 Token',btn_check_login:'检查登录',btn_auto_capture:'自动刷新',
@@ -143,7 +145,7 @@ _ADMIN_I18N_JS = """const i18n={
     mt_prompt:'测试提问',mt_prompt_ph:'留空＝用默认探测语句',mt_run:'测试所选模型',mt_run_all:'测试全部模型',mt_running:'测试中…',
     mt_none:'尚未测试',mt_no_account:'请先选择账号。',mt_no_model:'该账号没有可测的模型（个人版请先在「全局设置」里配置模型映射）。',
     mt_v_ok:'可用',mt_v_empty:'空回复',mt_v_refused:'被拒',mt_v_throttled:'限额',mt_v_error:'故障',mt_v_running:'测试中',
-    mt_legend:'可用＝上游正常回复；空回复＝接受了这一轮但什么都没说（多数是该模式没对这个账号放开）；被拒＝上游直接拒绝；限额＝配额问题，与模式可用性无关；故障＝传输或凭据错误，据此判断不了模式。',
+    mt_legend:'可用＝上游正常回复；空回复＝接受了这一轮但什么都没说（多数是该模式没对这个账号放开）；被拒＝上游直接拒绝；限额＝这次请求被上游限流，不能据此判定所有模式都不可用；故障＝传输或凭据错误，据此判断不了模式。',
   },
   en:{
     multi_badge:'Multi',
@@ -199,7 +201,9 @@ _ADMIN_I18N_JS = """const i18n={
     page_prev:'Prev',page_next:'Next',page_info:'Page {cur}/{total} · {count} total',page_size_label:'Per page',page_size_unit:'',
     batch_refresh:'Sync',batch_delete:'Del',batch_enable:'On',batch_disable:'Off',batch_none:'Select items first',batch_confirm_delete:'Delete selected items?',
     confirm_del_account:'Delete this account? Keys bound to it will be unbound.',confirm_del_key:'Delete this key?',confirm_remove_token:'Remove this account token?',confirm_clear_stats:'Clear this statistics data?',
-    valid_short:'OK',invalid_short:'Bad',cookie_valid_short:'OK',cookie_invalid_short:'Bad',cookie_updated_label:'Upd',cookie_expires_label:'Exp',media_image:'Image',media_attach:'File',refresh_auto:'Auto',refresh_manual:'Manual',refresh_unavailable:'Unavailable',no_accounts:'No accounts yet',no_keys:'No keys yet',unbound:'Unbound',acct_token_only:'Token',provider_consumer:'Personal',throttled_short:'Throttled',throttled_until_label:'Upstream says it resets at',
+    valid_short:'OK',invalid_short:'Bad',cookie_valid_short:'OK',cookie_invalid_short:'Bad',cookie_updated_label:'Upd',cookie_expires_label:'Exp',media_image:'Image',media_attach:'File',refresh_auto:'Auto',refresh_manual:'Manual',refresh_unavailable:'Unavailable',no_accounts:'No accounts yet',no_keys:'No keys yet',unbound:'Unbound',acct_token_only:'Token',provider_consumer:'Personal',throttled_short:'Recent request throttled',throttled_until_label:'Upstream retry hint',
+    protocol_stored:'Stored',protocol_missing:'Not stored',protocol_current:'Current',protocol_refresh_manual:'Current protocol requires a manual re-push',protocol_refresh_rt:'Current protocol uses RT renewal',protocol_refresh_browser:'Current protocol uses browser renewal',protocol_saved_note:'Credentials exist; upstream access is not guaranteed. Only the current protocol is renewed automatically.',
+    throttled_mode_unknown:'Mode not recorded',throttled_observed_label:'Observed at',throttled_scope_note:'Observation from one request, not proof that every mode or the website is unavailable.',
     rebind_prompt:'Enter the account ID to bind (leave empty to unbind):',push_token_prompt:'Paste this account\\u0027s access_token or wss:// URL:',
     rebind_title:'Rebind M365 account',rebind_unbind:'(None)',rebind_confirm:'Confirm',
     title_update_token:'Update Token',btn_update:'Update Token',btn_check_login:'Check Login',btn_auto_capture:'Auto Capture',
@@ -287,7 +291,7 @@ _ADMIN_I18N_JS = """const i18n={
     mt_prompt:'Test prompt',mt_prompt_ph:'Empty = default probe prompt',mt_run:'Test selected model',mt_run_all:'Test all models',mt_running:'Testing...',
     mt_none:'Not tested yet',mt_no_account:'Select an account first.',mt_no_model:'This account has no testable model (for the personal edition, configure the model mapping under Settings first).',
     mt_v_ok:'OK',mt_v_empty:'Empty',mt_v_refused:'Refused',mt_v_throttled:'Throttled',mt_v_error:'Error',mt_v_running:'Testing',
-    mt_legend:'OK = upstream answered. Empty = the turn was accepted but nothing was said (usually the mode is not rolled out to this account). Refused = upstream declined the turn. Throttled = quota, unrelated to mode availability. Error = transport/credential failure, which says nothing about the mode.',
+    mt_legend:'OK = upstream answered. Empty = the turn was accepted but nothing was said (usually the mode is not rolled out to this account). Refused = upstream declined the turn. Throttled = this request was rate-limited, not proof that every mode is unavailable. Error = transport/credential failure, which says nothing about the mode.',
   }
 };
 """

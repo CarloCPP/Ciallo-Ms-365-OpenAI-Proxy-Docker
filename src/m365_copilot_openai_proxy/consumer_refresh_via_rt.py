@@ -230,6 +230,7 @@ async def refresh_consumer_via_rt(accounts: AccountStore, account_id: str) -> bo
     account = accounts.get(account_id)
     if account is None or getattr(account, "provider", "m365") != "consumer":
         return False
+    epoch = account.protocol_epoch
 
     rt = normalize_consumer_refresh_token(getattr(account, "consumer_refresh_token", ""))
     if not rt:
@@ -270,6 +271,8 @@ async def refresh_consumer_via_rt(accounts: AccountStore, account_id: str) -> bo
             client_id=client_id, refresh_token=rt, scope=scope, proxy=proxy
         )
     except Exception as exc:  # noqa: BLE001 - a network failure is just a miss
+        if not accounts.is_protocol_current(account_id, epoch, "consumer"):
+            return False
         accounts.defer_consumer_refresh_token(
             account_id, rt, time.time() + _RETRYABLE_ERROR_BACKOFF_SECONDS
         )
@@ -277,6 +280,9 @@ async def refresh_consumer_via_rt(accounts: AccountStore, account_id: str) -> bo
             f"Consumer RT refresh failed for {account_id}: HTTP error: {exc}; RT kept "
             f"but paused for {_RETRYABLE_ERROR_BACKOFF_SECONDS // 60}m"
         )
+        return False
+
+    if not accounts.is_protocol_current(account_id, epoch, "consumer"):
         return False
 
     if resp.status_code != 200:
@@ -345,6 +351,7 @@ async def refresh_consumer_via_rt(accounts: AccountStore, account_id: str) -> bo
         consumer_token=fresh_token,
         rotated_refresh_token=rotated,
         expires_at=expires_at,
+        expected_epoch=epoch,
     )
     if stored is None:
         elog(

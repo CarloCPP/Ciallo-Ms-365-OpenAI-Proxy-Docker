@@ -63,7 +63,7 @@ def test_default_gate_is_seeded_from_the_pushed_account_snapshot(tmp_path):
 
     gate = scheduler._build_consumer_gate(acct_id)
 
-    assert gate._seed_cookies == store.get(acct_id).cookies
+    assert gate._seed_cookies == store.get(acct_id).consumer_cookies
     assert gate._previous_token == "old-token"
     assert gate._profile_dir == scheduler._consumer_profile_dir(
         acct_id, "home:account-a"
@@ -103,10 +103,9 @@ def test_refresh_consumer_stores_the_reminted_credential(tmp_path):
 
     acc = store.get(acct_id)
     assert acc.consumer_token == "new-token"
-    assert {c["name"] for c in acc.cookies} == {"__Host-MSAAUTHP", "WLSSC"}
-    assert all(cookie.get("domain") == ".live.com" for cookie in acc.cookies)
-    assert _pick_cookies(acc.cookies) == {"__Host-MSAAUTHP": "new", "WLSSC": "fresh"}
-    assert acc.cookie_valid is True
+    assert {c["name"] for c in acc.consumer_cookies} == {"__Host-MSAAUTHP", "WLSSC"}
+    assert all(cookie.get("domain") == ".live.com" for cookie in acc.consumer_cookies)
+    assert _pick_cookies(acc.consumer_cookies) == {"__Host-MSAAUTHP": "new", "WLSSC": "fresh"}
 
 
 
@@ -323,7 +322,7 @@ def test_passive_ensure_fresh_refreshes_a_known_expiring_consumer_token(tmp_path
     current = store.get(acct_id)
     store.set_consumer_auth(
         acct_id,
-        current.cookies,
+        current.consumer_cookies,
         current.consumer_token,
         current.consumer_identity_type,
         consumer_account_id=current.consumer_account_id,
@@ -374,7 +373,7 @@ def test_concurrent_expiry_requests_share_one_refresh_attempt(tmp_path, monkeypa
     account = store.get(acct_id)
     store.set_consumer_auth(
         acct_id,
-        account.cookies,
+        account.consumer_cookies,
         account.consumer_token,
         consumer_account_id="home:account-a.tenant-a",
         expires_at=time.time() + 60,
@@ -461,7 +460,7 @@ def test_a_new_push_is_not_coalesced_with_an_older_failed_refresh(tmp_path):
         first = asyncio.create_task(sched.refresh_consumer(acct_id))
         await asyncio.wait_for(started.wait(), timeout=5)
         store.set_consumer_auth(
-            acct_id, store.get(acct_id).cookies, "pushed-token", consumer_account_id="home:account-a"
+            acct_id, store.get(acct_id).consumer_cookies, "pushed-token", consumer_account_id="home:account-a"
         )
         previous_tasks = set(_BACKGROUND_TASKS)
         _spawn_post_push_refresh(sched, acct_id, force=True)
@@ -525,7 +524,7 @@ def test_refresh_consumer_rejects_cookies_without_replay_metadata(tmp_path):
 
     sched = _sched(store, tmp_path, gate)
     assert asyncio.run(sched.refresh_consumer(acct_id)) is False
-    assert _pick_cookies(store.get(acct_id).cookies) == {"__Host-MSAAUTHP": "old"}
+    assert _pick_cookies(store.get(acct_id).consumer_cookies) == {"__Host-MSAAUTHP": "old"}
 
 
 def test_refresh_consumer_rejects_a_different_microsoft_subject(tmp_path):
@@ -595,8 +594,8 @@ def test_refresh_consumer_discards_a_result_after_a_new_push(tmp_path):
     current = store.get(acct_id)
     assert current.consumer_account_id == "home:account-b"
     assert current.consumer_token == "token-b"
-    assert _pick_cookies(current.cookies) == {"WLSSC": "b"}
-    assert current.email == "b@example.com"
+    assert _pick_cookies(current.consumer_cookies) == {"WLSSC": "b"}
+    assert current.consumer_email == "b@example.com"
 
 
 def test_remove_account_rechecks_the_unbound_predicate_after_waiting_for_lock(tmp_path):

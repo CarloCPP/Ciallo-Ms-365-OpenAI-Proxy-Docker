@@ -1190,6 +1190,8 @@ def _responses_last_action_index(items) -> int | None:
         return None
     for index in range(len(items) - 1, -1, -1):
         item = items[index]
+        if isinstance(item, dict) and item.get("type") == "reasoning":
+            continue
         if (
             isinstance(item, dict)
             and item.get("type") in (None, "message")
@@ -1313,6 +1315,8 @@ def translate_responses_request(
             parsed_items.append(("function_call_output", item))
         elif item_type in (None, "message") and isinstance(item.get("role"), str):
             parsed_items.append(("message", item))
+        elif item_type == "reasoning":
+            parsed_items.append(("reasoning", item))
         else:
             label = str(item_type or "unknown")
             raise ValueError(f"Unsupported Responses input item type: {label}.")
@@ -1327,6 +1331,8 @@ def translate_responses_request(
     function_call_ids: set[str] = set()
     function_output_ids: set[str] = set()
     for index, (kind, item) in enumerate(parsed_items):
+        if kind == "reasoning":
+            continue
         is_last_action = index == last_action_index
         if kind == "function_call":
             call_id = item.get("call_id")

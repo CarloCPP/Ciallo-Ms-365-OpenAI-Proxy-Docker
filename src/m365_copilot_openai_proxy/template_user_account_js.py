@@ -104,10 +104,8 @@ function renderAccountStatus(d){
   const valid=!!st.valid;
   const login=!!(a&&a.cookie_valid);
   const consumer=!!(a&&a.provider==='consumer');
-  const refresh=!!(a&&(consumer||a.token_source==='cdp'||a.has_refresh_token));
-  // Consumer accounts still have the Camoufox fallback when their HTTP RT is
-  // gone, so keep the capability mark green but explain why the fast path is
-  // unavailable. M365 accounts use their separate RT fields below.
+  const refreshMode=a?.protocols?.[a.provider]?.refresh_mode||'manual';
+  const refresh=refreshMode==='rt'||refreshMode==='browser';
   const rtDead=consumer
     ? (a&&!a.has_consumer_refresh_token&&a.consumer_refresh_token_disabled_reason
       ? String(a.consumer_refresh_token_disabled_reason) : '')
@@ -130,6 +128,45 @@ function renderAccountStatus(d){
     +(rtNote?'<div class="status-rt-note"><b>'+t('rt_dead_label')+'</b> '+esc(rtNote)+'</div>':'');
 }
 
+let _protocolSwitchPending=false;
+function renderUserProtocols(a){
+  const protocols=a.protocols||{};
+  return '<div style="margin-top:.8rem;display:grid;gap:.5rem">'+['m365','consumer'].map(provider=>{
+    const p=protocols[provider]||{};
+    const label=provider==='m365'?'Substrate':'ChatAI';
+    const mode=['rt','browser'].includes(p.refresh_mode)?p.refresh_mode:'manual';
+    const state=t(p.stored?'protocol_stored':'protocol_missing')+(p.active?' · '+t('protocol_current'):'');
+    const readiness=p.stored&&!p.can_activate&&!p.active?t(p.identity_ready?'protocol_not_ready':'protocol_identity_missing'):'';
+    return '<div data-protocol="'+provider+'" style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">'
+      +'<b>'+label+'</b><span>'+state+' · '+t('protocol_refresh_'+mode)+'</span>'
+      +'<button type="button" class="btn-ghost" data-protocol-switch="'+provider+'"'+(_protocolSwitchPending||p.active||!p.stored||!p.can_activate?' disabled':'')+' onclick="switchUserProtocol(this.dataset.protocolSwitch)">'+t(p.active?'protocol_current':'protocol_switch')+'</button>'
+      +(readiness?'<span style="color:var(--muted)">'+readiness+'</span>':'')+'</div>';
+  }).join('')+'<div style="font-size:.78rem;color:var(--muted)">'+t('protocol_saved_note')+'</div><div id="user-protocol-msg" role="status" style="font-size:.8rem;color:#fca5a5"></div></div>';
+}
+async function switchUserProtocol(provider){
+  if(_protocolSwitchPending)return;
+  _protocolSwitchPending=true;
+  const buttons=Array.from(document.querySelectorAll('[data-protocol-switch]'));
+  buttons.forEach(button=>{button.disabled=true});
+  const show=message=>{const el=document.getElementById('user-protocol-msg');if(el)el.textContent=message};
+  show('');
+  try{
+    const r=await fetch('/user/account/protocol',{method:'POST',headers:{...authHeaders(),'Content-Type':'application/json'},body:JSON.stringify({provider})});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok){show((typeof d.error==='string'?d.error:d.error?.message)||t('protocol_switch_failed')+' (HTTP '+r.status+')');return}
+    // The active protocol is authoritative only after the server accepts it.
+    _protocolSwitchPending=false;
+    if(!await loadMe())show(t('protocol_reload_failed'));
+  }catch(e){show(t('network_error'))}
+  finally{
+    _protocolSwitchPending=false;
+    document.querySelectorAll('[data-protocol-switch]').forEach(button=>{
+      const p=_userMeCache?.account?.protocols?.[button.dataset.protocolSwitch];
+      button.disabled=!p||p.active||!p.stored||!p.can_activate;
+    });
+  }
+}
+
 let _userMeCache=null;
 function renderAccountInfo(d){
   if(!d)return;
@@ -145,13 +182,18 @@ function renderAccountInfo(d){
     const st=d.account.token_status||{};
     const valid=st.valid;
     const rem=valid&&st.expires_at?(' · '+t('remaining')+' <span data-user-remaining>'+fmtRemaining(_userRemainSec>0?_userRemainSec:st.seconds_remaining)+'</span>'):'';
-    // Only while the window upstream named is still open. There is no remaining
-    // count to show -- no provider reports one -- so the reset time it did name
-    // is the whole of what can honestly be said, with the exact instant on hover.
+    // Preserve the request scope; the retry hint is not a global quota balance.
     const thr=Number(d.account.throttled_until||0);
-    const thrPill=(thr*1000>Date.now())?'<span class="pill bad" title="'+esc(t('throttled_until_label')+': '+fmtExpire(new Date(thr*1000).toISOString()))+'">'+t('throttled_short')+' · '+fmtRemaining(thr-Date.now()/1000)+'</span>':'';
+    let thrPill='';
+    if(thr*1000>Date.now()){
+      const thrMode=String(d.account.throttled_mode||'');
+      const thrLabel='ChatAI · '+t('throttled_short')+' · '+(thrMode||t('throttled_mode_unknown'));
+      const thrTitle=t('throttled_until_label')+': '+fmtExpire(new Date(thr*1000).toISOString())+(d.account.throttled_at?'\\n'+t('throttled_observed_label')+': '+fmtExpire(new Date(d.account.throttled_at*1000).toISOString()):'')+'\\n'+t('throttled_scope_note');
+      thrPill='<span class="pill bad" title="'+esc(thrTitle)+'">'+esc(thrLabel)+' · '+fmtRemaining(thr-Date.now()/1000)+'</span>';
+    }
     acc+='<div class="row" style="flex-wrap:wrap;gap:.4rem;align-items:center"><span class="pill">'+t('bound_account')+': '+esc(boundAccountName(d.account))+'</span>'
       +'<span class="pill '+(valid?'ok':'bad')+'">'+(valid?t('token_valid'):t('token_invalid'))+rem+'</span>'+thrPill+'</div>';
+    acc+=renderUserProtocols(d.account);
   }else{
     acc+='<div class="row" style="flex-wrap:wrap;gap:.4rem;align-items:center"><span class="pill">'+t('no_account')+'</span></div>';
   }

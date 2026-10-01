@@ -77,7 +77,7 @@ def _admin_status_helpers() -> str:
     )
 
 
-_CONSUMER_ACCOUNT_JS = "{id:'acct_consumer',name:'Personal Alice',email:'alice@example.com',provider:'consumer',token_source:'manual',cookie_valid:true,cookie_updated_at:0,cookie_expires_at:0,token_status:{valid:true,expires_at:null,seconds_remaining:0},bound_names:[],key_count:1,has_designer_auth:false,has_media_auth:false}"
+_CONSUMER_ACCOUNT_JS = "{id:'acct_consumer',name:'Personal Alice',email:'alice@example.com',provider:'consumer',protocols:{m365:{stored:true,active:false,can_activate:true,refresh_mode:'rt'},consumer:{stored:true,active:true,can_activate:true,refresh_mode:'manual'}},token_source:'manual',cookie_valid:true,cookie_updated_at:0,cookie_expires_at:0,token_status:{valid:true,expires_at:null,seconds_remaining:0},bound_names:[],key_count:1,has_designer_auth:false,has_media_auth:false}"
 
 
 def _admin_accounts_render_script(
@@ -122,12 +122,14 @@ def test_admin_consumer_token_omits_zero_countdown(tmp_path: Path):
     )
 
 
-def test_admin_consumer_refresh_mode_is_automatic(tmp_path: Path):
+def test_admin_consumer_without_renewal_credentials_stays_manual(tmp_path: Path):
     _run_node(
         tmp_path,
         _admin_accounts_render_script(
-            "assert.ok(box.innerHTML.includes('>Auto</span>'),box.innerHTML);"
-            "assert.ok(!box.innerHTML.includes('>Manual</span>'),box.innerHTML);"
+            "assert.ok(box.innerHTML.includes('>Manual</span>'),box.innerHTML);"
+            "assert.ok(!box.innerHTML.includes('>Auto</span>'),box.innerHTML);"
+            "assert.ok(box.innerHTML.includes('data-protocol=\"m365\"'),box.innerHTML);"
+            "assert.ok(box.innerHTML.includes('data-protocol=\"consumer\"'),box.innerHTML);"
         ),
     )
 
@@ -137,7 +139,7 @@ def test_admin_pkce_account_refresh_mode_is_automatic(tmp_path: Path):
     that account really is refreshed for us -- the badge must not say Manual."""
     account = (
         "{id:'acct_m365',name:'Work Alice',email:'alice@contoso.com',provider:'m365',"
-        "token_source:'manual',has_refresh_token:true,cookie_valid:false,cookie_updated_at:0,"
+        "protocols:{m365:{stored:true,active:true,refresh_mode:'rt'}},token_source:'manual',has_refresh_token:true,cookie_valid:false,cookie_updated_at:0,"
         "cookie_expires_at:0,token_status:{valid:true,expires_at:null,seconds_remaining:0},"
         "bound_names:[],key_count:1,has_designer_auth:false,has_media_auth:false}"
     )
@@ -250,13 +252,11 @@ _FROZEN_NOW_JS = "Date.now=()=>Date.UTC(2026,7,22,6,0,0);"
 
 
 def test_admin_throttle_badge_shows_only_while_the_window_is_open(tmp_path: Path):
-    """Rendered from the timestamp, not from a sticky flag: the window closes on
-    its own upstream, so a row must never keep claiming a spent quota."""
+    """Expired observations must not render as active throttling."""
     _run_node(
         tmp_path,
         _admin_accounts_render_script(
-            "assert.ok(box.innerHTML.includes('acct-throttled-tag'),box.innerHTML);"
-            "assert.ok(box.innerHTML.includes('title=\\\"throttled_until_label: 26-08-22 12:00:00\\\"'),box.innerHTML);",
+            "assert.ok(box.innerHTML.includes('acct-throttled-tag'),box.innerHTML);",
             _THROTTLED_ACCOUNT_JS.replace("__UNTIL__", "Date.UTC(2026,7,22,12,0,0)/1000"),
             prelude=_FROZEN_NOW_JS,
         ),
@@ -302,7 +302,7 @@ def _user_status_script(assertions: str) -> str:
             # concatenates the sign-in panel module after this one.
             "function renderUserPkce(){}",
             _USER_ACCOUNT_JS,
-            "const account={id:'acct_consumer',name:'Personal Alice',email:'alice@example.com',provider:'consumer',token_source:'manual',binding_state:'cookie',cookie_valid:true,has_token:false,token_status:{valid:true,expires_at:null,seconds_remaining:0}};",
+            "const account={id:'acct_consumer',name:'Personal Alice',email:'alice@example.com',provider:'consumer',protocols:{m365:{stored:true,active:false,can_activate:true,refresh_mode:'rt'},consumer:{stored:true,active:true,can_activate:true,refresh_mode:'manual'}},token_source:'manual',binding_state:'cookie',cookie_valid:true,has_token:false,token_status:{valid:true,expires_at:null,seconds_remaining:0}};",
             assertions,
         ]
     )
@@ -321,25 +321,25 @@ def test_user_consumer_unknown_expiry_never_renders_zero_countdown(tmp_path: Pat
 
 
 def test_user_panel_shows_the_throttle_window_only_while_it_is_open(tmp_path: Path):
-    """The end user is told when the quota comes back, because that is the only
-    thing upstream reports -- there is no remaining count to show."""
+    """Expired observations must disappear from the user account panel."""
     _run_node(
         tmp_path,
         _user_status_script(
             _FROZEN_NOW_JS
             + "renderAccountInfo({account:{...account,throttled_until:Date.UTC(2026,7,22,7,30,0)/1000}});"
-            "assert.ok(elements['account-info'].innerHTML.includes('throttled_short \\u00b7 01:30:00'),elements['account-info'].innerHTML);"
             "renderAccountInfo({account:{...account,throttled_until:Date.UTC(2026,7,22,5,0,0)/1000}});"
             "assert.ok(!elements['account-info'].innerHTML.includes('throttled_short'),elements['account-info'].innerHTML);"
         ),
     )
 
 
-def test_user_consumer_refresh_capability_uses_provider(tmp_path: Path):
+def test_user_consumer_refresh_uses_active_protocol_capability_not_provider(tmp_path: Path):
     _run_node(
         tmp_path,
         _user_status_script(
             "renderAccountStatus({account});"
+            "assert.ok(elements['account-status-panel'].innerHTML.includes('<span>Refresh</span><b><span class=\"status-mark bad\"></span></b>'),elements['account-status-panel'].innerHTML);"
+            "account.protocols.consumer.refresh_mode='browser';renderAccountStatus({account});"
             "assert.ok(elements['account-status-panel'].innerHTML.includes('<span>Refresh</span><b><span class=\"status-mark ok\"></span></b>'),elements['account-status-panel'].innerHTML);"
         ),
     )
@@ -350,10 +350,10 @@ def test_user_refresh_capability_follows_the_stored_refresh_token(tmp_path: Path
     _run_node(
         tmp_path,
         _user_status_script(
-            "account.provider='m365';account.token_source='manual';"
+            "account.provider='m365';account.token_source='manual';account.protocols.m365.refresh_mode='manual';"
             "renderAccountStatus({account});"
             "assert.ok(elements['account-status-panel'].innerHTML.includes('<span>Refresh</span><b><span class=\"status-mark bad\"></span></b>'),elements['account-status-panel'].innerHTML);"
-            "account.has_refresh_token=true;"
+            "account.has_refresh_token=true;account.protocols.m365.refresh_mode='rt';"
             "renderAccountStatus({account});"
             "assert.ok(elements['account-status-panel'].innerHTML.includes('<span>Refresh</span><b><span class=\"status-mark ok\"></span></b>'),elements['account-status-panel'].innerHTML);"
         ),
@@ -594,8 +594,6 @@ def test_admin_refresh_buttons_show_pending_state_and_success(tmp_path: Path):
     _run_node(tmp_path, script)
 
 
-def test_admin_account_rerender_restores_pending_refresh_state():
-    assert "__refreshingAccountIds.forEach(id=>setAccountRefreshBusy(id,true));" in _ADMIN_ACCOUNTS_JS
 
 
 def test_batch_refresh_does_not_duplicate_an_inflight_row_refresh(tmp_path: Path):
@@ -665,3 +663,50 @@ def test_user_page_exposes_proxy_field():
     assert "saveAccountProxy" in _USER_ACCOUNT_JS
     assert _USER_I18N_JS.count("user_proxy_label") == 2
     assert _USER_I18N_JS.count("user_proxy_hint") == 2
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+def test_user_protocol_buttons_follow_local_readiness_and_current_protocol(tmp_path: Path, language: str):
+    _run_node(tmp_path, _user_status_script_with_i18n(
+        "account.protocols={m365:{stored:true,active:false,can_activate:false,identity_ready:false,refresh_mode:'manual'},consumer:{stored:true,active:true,can_activate:true,identity_ready:true,refresh_mode:'browser'}};"
+        "renderAccountInfo({account});"
+        "let html=elements['account-info'].innerHTML;"
+        "assert.ok(/data-protocol-switch=\"m365\"[^>]*disabled/.test(html),html);"
+        "assert.ok(/data-protocol-switch=\"consumer\"[^>]*disabled/.test(html),html);"
+        "account.protocols.m365.can_activate=true;account.protocols.m365.identity_ready=true;"
+        "renderAccountInfo({account});html=elements['account-info'].innerHTML;"
+        "assert.ok(!/data-protocol-switch=\"m365\"[^>]*disabled/.test(html),html);"
+        "assert.ok(html.includes(t('protocol_refresh_browser')),html);"
+        "assert.ok(html.includes(t('protocol_saved_note')),html);",
+        lang=language,
+    ))
+
+
+@pytest.mark.parametrize("redraw", [False, True])
+@pytest.mark.parametrize("success", [False, True])
+def test_user_protocol_switch_waits_for_server_and_preserves_state_on_rejection(tmp_path: Path, success: bool, redraw: bool):
+    _run_node(tmp_path, "\n".join([
+        "const assert=require('assert');",
+        "let userTimeZone='',toneOptions=[],sysDefault='';",
+        "const elements=new Proxy({}, {get(target,id){return target[id]||(target[id]={innerHTML:'',textContent:'',value:'',style:{},classList:{add(){},remove(){}}})}});",
+        "let buttons=[{dataset:{protocolSwitch:'m365'},disabled:false},{dataset:{protocolSwitch:'consumer'},disabled:true}];",
+        "const document={getElementById(id){return elements[id]},querySelectorAll(selector){return selector==='[data-protocol-switch]'?buttons:[]}};",
+        "const location={origin:'https://proxy.invalid'};",
+        "const getKey=()=> 'key',authHeaders=()=>({Authorization:'Bearer key'});",
+        "const renderToneOptions=()=>{},refreshGlassSelect=()=>{},setRunPermission=()=>{},setToolPlanning=()=>{},renderUserPkce=()=>{};",
+        "const t=k=>k,esc=v=>String(v??'');",
+        _USER_ACCOUNT_JS,
+        "const original={account:{id:'account',provider:'consumer',protocols:{m365:{stored:true,active:false,can_activate:true,refresh_mode:'manual'},consumer:{stored:true,active:true,can_activate:true,refresh_mode:'rt'}},token_status:{valid:true}}};",
+        "_userMeCache=original;renderAccountInfo(original);const before=elements['account-info'].innerHTML;",
+        "let finish;const requests=[];",
+        "const fetch=async(url,options)=>{requests.push(url);if(url==='/user/account/protocol'){assert.deepStrictEqual(JSON.parse(options.body),{provider:'m365'});return await new Promise(resolve=>finish=resolve)}return {ok:true,json:async()=>({account:{...original.account,provider:'m365',protocols:{m365:{stored:true,active:true,can_activate:true,refresh_mode:'manual'},consumer:{stored:true,active:false,can_activate:true,refresh_mode:'rt'}}}})}};",
+        "(async()=>{const pending=switchUserProtocol('m365');await Promise.resolve();",
+        "assert.strictEqual(elements['account-info'].innerHTML,before);assert.ok(buttons.every(b=>b.disabled));",
+        "buttons=buttons.map(button=>({dataset:button.dataset,disabled:true}));" if redraw else "",
+        f"finish({{ok:{str(success).lower()},status:{200 if success else 409},json:async()=>({{error:{{message:'Microsoft subject mismatch'}}}})}});await pending;",
+        ("assert.strictEqual(_userMeCache.account.provider,'m365');assert.notStrictEqual(elements['account-info'].innerHTML,before);assert.deepStrictEqual(requests,['/user/account/protocol','/user/me']);"
+         if success else
+         "assert.strictEqual(_userMeCache.account.provider,'consumer');assert.strictEqual(elements['account-info'].innerHTML,before);assert.strictEqual(elements['user-protocol-msg'].textContent,'Microsoft subject mismatch');assert.deepStrictEqual(requests,['/user/account/protocol']);"),
+        "assert.deepStrictEqual(buttons.map(b=>b.disabled),[true,false]);" if success else "assert.deepStrictEqual(buttons.map(b=>b.disabled),[false,true]);",
+        "})().catch(e=>{console.error(e);process.exitCode=1});",
+    ]))

@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Request
 
 from .config import Settings
 from .consumer_client import AccountThrottled
+from .error_handlers import UpstreamNetworkHTTPError
 from .key_store import ApiKey
 from .runtime_settings import (
     _BUILTIN_CONSUMER_MODE_OPTIONS,
@@ -16,6 +17,7 @@ from .runtime_settings import (
 from .substrate_client import (
     _EMPTY_TURN_MARKER,
     _REFUSED_TURN_MARKER,
+    SubstrateNetworkError,
     SubstrateThrottled,
 )
 from .tone_options import TONE_OPTIONS as _BUILTIN_TONE_OPTIONS
@@ -49,8 +51,8 @@ def upstream_http_error(
     unavailable for this account" from "the upstream connection died".
 
     A refused or twice-empty turn is upstream declining the request itself, so it
-    maps to 400 -- the request as phrased will not be served. Everything else
-    (idle timeout, closed socket, unusable token) stays 502.
+    maps to 400. Typed network failures map to 503; credential and other
+    upstream failures stay 502. Only a real quota refusal maps to 429.
 
     Consumer quota refusals use the typed ``AccountThrottled`` cause preserved by
     the adapter, so their reset timestamp becomes ``Retry-After`` without parsing
@@ -70,6 +72,9 @@ def upstream_http_error(
         if seconds is not None:
             headers = {"Retry-After": str(max(1, math.ceil(seconds)))}
         return HTTPException(status_code=429, detail=detail, headers=headers)
+    network = exc if isinstance(exc, SubstrateNetworkError) else exc.__cause__
+    if isinstance(network, SubstrateNetworkError):
+        return UpstreamNetworkHTTPError(detail)
     refused = _REFUSED_TURN_MARKER in detail or _EMPTY_TURN_MARKER in detail
     return HTTPException(status_code=400 if refused else 502, detail=detail)
 

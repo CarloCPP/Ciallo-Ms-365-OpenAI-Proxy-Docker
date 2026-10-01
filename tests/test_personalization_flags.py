@@ -311,6 +311,7 @@ def test_an_upstream_failure_keeps_its_status_in_the_message(tmp_path, monkeypat
 
 def test_a_consumer_account_is_told_it_has_no_such_setting(tmp_path, monkeypatch):
     store, account = _account(tmp_path)
+    store.clear_credentials(account.id)
     store.set_consumer_auth(account.id, cookies=[], access_token="consumer-token")
     calls = _install(monkeypatch)
 

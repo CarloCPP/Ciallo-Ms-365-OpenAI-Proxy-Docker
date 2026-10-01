@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import copy
 import math
 import os
 import re
@@ -111,7 +112,6 @@ def register_auth_middleware(app: FastAPI, resolved_settings: Settings) -> None:
             if account is not None and path.startswith("/v1/"):
                 try:
                     ok = await app.state.refresh_scheduler.ensure_fresh(account.id)
-                    account = app.state.account_store.get(account.id) or account
                     if not ok:
                         return with_cors(JSONResponse(
                             status_code=503,
@@ -121,6 +121,21 @@ def register_auth_middleware(app: FastAPI, resolved_settings: Settings) -> None:
                     return with_cors(JSONResponse(
                         status_code=503,
                         content={"error": {"message": f"On-demand token refresh failed: {exc}", "type": "refresh_error"}},
+                    ))
+            if account is not None:
+                store = app.state.account_store
+                snapshot = getattr(store, "get_request_snapshot", None)
+                # Production stores take the copy while holding their lock.
+                # Minimal embedded/test stores still provide real account data.
+                account = (
+                    snapshot(account.id)
+                    if snapshot is not None
+                    else copy(store.get(account.id))
+                )
+                if account is None:
+                    return with_cors(JSONResponse(
+                        status_code=503,
+                        content={"error": {"message": "Account disappeared during authentication.", "type": "refresh_error"}},
                     ))
             request.state.api_key_obj = key_obj
             request.state.account = account

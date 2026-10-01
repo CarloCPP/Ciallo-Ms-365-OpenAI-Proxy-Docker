@@ -122,6 +122,27 @@ def test_refresh_token_push_persists_the_verified_authority_and_subject(tmp_path
     assert persisted.refresh_token_object_id == OBJECT_ID
 
 
+@pytest.mark.parametrize("matching", [True, False])
+def test_inactive_substrate_slot_stores_only_its_own_refresh_grant(tmp_path, matching):
+    app, account, key = _bound_app(tmp_path)
+    store = app.state.account_store
+    personal_tenant = "84df9e7f-e9f6-40af-b435-aaaaaaaaaaaa"
+    store.update_token(account.id, _jwt(tid=personal_tenant), substrate_account_id="home:one")
+    store.set_consumer_auth(account.id, [], "chatai-token", consumer_account_id="home:one")
+    epoch = account.protocol_epoch
+    response = TestClient(app).post(
+        "/user/account/refresh-token", headers={"Authorization": f"Bearer {key.key}"},
+        json=_binding(tenant_id=personal_tenant, object_id=OBJECT_ID if matching else HOME_TENANT),
+    )
+    assert response.status_code == (200 if matching else 409)
+    assert account.provider == "consumer"
+    assert account.protocol_epoch == epoch
+    assert account.consumer_token == "chatai-token"
+    assert AccountStore(tmp_path / "accounts.json").get(account.id).refresh_token == (
+        _binding()["refresh_token"] if matching else ""
+    )
+
+
 def test_spa_refresh_token_push_does_not_replace_native_pkce_token(tmp_path):
     app, account, key = _bound_app(tmp_path)
     store = app.state.account_store

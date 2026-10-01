@@ -16,9 +16,11 @@ Design reference: HEXUXIU/M365-Copilot2API (MIT), internal/web/account_concurren
 from __future__ import annotations
 
 import asyncio
+import time
 from contextlib import asynccontextmanager
 
 from .runtime_flags import ulog
+from .sse_stream import closing_stream
 
 
 class AccountConcurrency:
@@ -84,20 +86,19 @@ class ThrottledClient:
     have to reach the wrapped client. Only the two turn-taking methods are
     intercepted.
 
-    ``on_error`` sees every failed turn, whatever the provider. It exists so
-    per-account bookkeeping that needs the turn's outcome can live at this one
-    funnel instead of at the eleven call sites; classifying the exception is the
-    caller's job, so this module stays free of provider imports.
+    ``on_outcome`` sees failed turns and fully consumed, nonempty successes,
+    together with their mode and start time. Provider-specific bookkeeping
+    stays in the caller; cancellation and empty replies never claim recovery.
     """
 
     # Deliberately odd names: everything else, including ``_client``, must fall
     # through to the wrapped object.
-    __slots__ = ("_throttle_target", "_throttle_hold", "_throttle_on_error")
+    __slots__ = ("_throttle_target", "_throttle_hold", "_throttle_on_outcome")
 
-    def __init__(self, client, hold, on_error=None) -> None:
+    def __init__(self, client, hold, on_outcome=None) -> None:
         object.__setattr__(self, "_throttle_target", client)
         object.__setattr__(self, "_throttle_hold", hold)
-        object.__setattr__(self, "_throttle_on_error", on_error)
+        object.__setattr__(self, "_throttle_on_outcome", on_outcome)
 
     @property
     def __class__(self):  # type: ignore[override]
@@ -109,32 +110,44 @@ class ThrottledClient:
     def __setattr__(self, name, value) -> None:
         setattr(self._throttle_target, name, value)
 
-    def _throttle_note(self, exc: BaseException) -> None:
-        hook = self._throttle_on_error
+    def _throttle_note(self, exc: BaseException | None, mode: str, started_at: float) -> None:
+        hook = self._throttle_on_outcome
         if hook is None:
             return
         # Bookkeeping must never replace the turn's own error with its own, but a
         # hook that is quietly broken would also hide whatever it was recording.
         try:
-            hook(exc)
+            hook(exc, mode, started_at)
         except Exception as hook_exc:  # pragma: no cover - defensive
-            ulog(f"[concurrency] turn-error hook failed: {hook_exc!r}")
+            ulog(f"[concurrency] turn-outcome hook failed: {hook_exc!r}")
 
     async def chat(self, *args, **kwargs):
         async with self._throttle_hold():
+            started_at = time.time()
+            mode = str(getattr(self._throttle_target, "mode", "") or "")
             try:
-                return await self._throttle_target.chat(*args, **kwargs)
+                result = await self._throttle_target.chat(*args, **kwargs)
             except Exception as exc:
-                self._throttle_note(exc)
+                self._throttle_note(exc, mode, started_at)
                 raise
+            if result:
+                self._throttle_note(None, mode, started_at)
+            return result
 
     async def chat_stream(self, *args, **kwargs):
         # Held for the whole iteration, not just the call: the upstream
         # WebSocket stays open until the last delta arrives.
         async with self._throttle_hold():
+            started_at = time.time()
+            mode = str(getattr(self._throttle_target, "mode", "") or "")
+            emitted = False
             try:
-                async for delta in self._throttle_target.chat_stream(*args, **kwargs):
-                    yield delta
+                async with closing_stream(self._throttle_target.chat_stream(*args, **kwargs)) as owned_stream:
+                    async for delta in owned_stream:
+                        emitted = emitted or bool(delta)
+                        yield delta
             except Exception as exc:
-                self._throttle_note(exc)
+                self._throttle_note(exc, mode, started_at)
                 raise
+            if emitted:
+                self._throttle_note(None, mode, started_at)

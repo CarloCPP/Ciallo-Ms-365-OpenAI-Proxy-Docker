@@ -23,6 +23,19 @@ def rate_limit_error_payload(path: str, message: str) -> dict:
     }
 
 
+class UpstreamNetworkHTTPError(HTTPException):
+    def __init__(self, message: str) -> None:
+        super().__init__(status_code=503, detail=message)
+
+
+def network_error_payload(path: str, message: str) -> dict:
+    error = {"type": "network_error", "code": "network_error", "message": message}
+    if path.rstrip("/") == "/v1/messages":
+        # Keep Anthropic's standard type; the additive code identifies transport.
+        return {"type": "error", "error": {**error, "type": "api_error"}}
+    return {"error": error}
+
+
 def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
@@ -41,11 +54,12 @@ def register_error_handlers(app: FastAPI) -> None:
     async def http_exception_handler(request: Request, exc: HTTPException):
         headers = {"Access-Control-Allow-Origin": "*"}
         headers.update(exc.headers or {})
-        content = (
-            rate_limit_error_payload(request.url.path, str(exc.detail))
-            if exc.status_code == 429
-            else {"error": {"message": exc.detail, "type": "http_error"}}
-        )
+        if isinstance(exc, UpstreamNetworkHTTPError):
+            content = network_error_payload(request.url.path, str(exc.detail))
+        elif exc.status_code == 429:
+            content = rate_limit_error_payload(request.url.path, str(exc.detail))
+        else:
+            content = {"error": {"message": exc.detail, "type": "http_error"}}
         return JSONResponse(
             status_code=exc.status_code,
             content=content,

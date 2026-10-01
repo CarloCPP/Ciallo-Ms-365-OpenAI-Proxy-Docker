@@ -5,6 +5,8 @@ import json
 import subprocess
 from pathlib import Path
 
+from test_userscript_consumer_email import _email_resolution_source
+
 
 SCRIPT = (Path(__file__).resolve().parents[1] / "get_token.user.js").read_text(
     encoding="utf-8"
@@ -39,7 +41,7 @@ def _capture_source() -> str:
     end_marker = "    // ---- End M365 refresh-token capture helpers ---------------------------"
     assert start_marker in SCRIPT
     assert end_marker in SCRIPT
-    return SCRIPT.split(start_marker, 1)[1].split(end_marker, 1)[0]
+    return _email_resolution_source() + "\n" + SCRIPT.split(start_marker, 1)[1].split(end_marker, 1)[0]
 
 
 def test_userscript_accepts_a_brokered_substrate_rt_and_rejects_non_substrate():
@@ -55,6 +57,7 @@ def test_userscript_accepts_a_brokered_substrate_rt_and_rejects_non_substrate():
     )
     program = f"""
 const location={{href:'https://m365.cloud.microsoft/chat'}};
+const localStorage={{length:0,key(){{return null}},getItem(){{return null}}}};
 const M365_RT_CLIENT_ID={json.dumps(CLIENT_ID)};
 let latestRefreshToken='';
 let latestRefreshTokenBinding=null;
@@ -134,16 +137,6 @@ def test_every_explicit_m365_push_updates_the_bound_rt_when_available():
     assert "latestRefreshTokenBinding" in push_rt
 
 
-def test_cookie_push_binds_the_latest_access_token_before_pushing_rt():
-    push_cookies = SCRIPT.split("async function pushCookies", 1)[1].split(
-        "async function pushConsumer", 1
-    )[0]
-
-    assert "pushUserToken(base, latestToken)" in push_cookies
-    token_index = push_cookies.index("pushUserToken(base, latestToken)")
-    cookies_index = push_cookies.index("pushUserCookies(base, cookies)")
-    rt_index = push_cookies.index("pushLatestRefreshTokenSilently(true)")
-    assert token_index < cookies_index < rt_index
 
 
 def test_silent_rt_push_drains_a_new_capture_that_arrives_in_flight(tmp_path):

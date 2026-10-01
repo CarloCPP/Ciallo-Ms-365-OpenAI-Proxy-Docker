@@ -42,7 +42,7 @@ def test_gate_returns_the_persisted_credential_after_a_successful_remint():
     """The gate reads back from the store rather than trusting the browser's
     return value, so the client and the store cannot drift apart."""
     account = SimpleNamespace(
-        cookies=[{"name": "_C_Auth", "value": "new", "domain": ".copilot.microsoft.com"}],
+        consumer_cookies=[{"name": "_C_Auth", "value": "new", "domain": ".copilot.microsoft.com"}],
         consumer_token="reminted",
         consumer_identity_type="MSA",
     )
@@ -62,7 +62,7 @@ def test_gate_returns_the_persisted_credential_after_a_successful_remint():
 def test_gate_preserves_the_identity_type_the_userscript_captured():
     """MSAL mints no X-UserIdentityType, so the value can only come from the
     store; a gate reading the browser directly would blank it."""
-    account = SimpleNamespace(cookies=[], consumer_token="t", consumer_identity_type="MSA")
+    account = SimpleNamespace(consumer_cookies=[], consumer_token="t", consumer_identity_type="MSA")
     gate = _consumer_gate_for(_app(scheduler=_scheduler(True), account=account), "a")
     assert asyncio.run(gate())["identity_type"] == "MSA"
 
@@ -103,7 +103,7 @@ def _consumer_account(**overrides):
         id="acct-1",
         provider="consumer",
         token="",
-        cookies=[{"name": "_U", "value": "v", "domain": ".copilot.microsoft.com"}],
+        consumer_cookies=[{"name": "_U", "value": "v", "domain": ".copilot.microsoft.com"}],
         consumer_token="tok",
         consumer_identity_type="MSA",
         proxy_url="",

@@ -49,8 +49,8 @@ def _spawn_post_push_refresh(scheduler, account_id: str, *, force: bool = False)
     once the cookie expires. Runs detached: the push response returns immediately
     and the token/expiry appear on the next admin refresh (~10-20s later).
 
-    ``force`` exists for the consumer push: ensure_fresh routes a consumer account
-    to its Camoufox gate but re-mints only when forced (see its provider guard).
+    ``force`` also initializes a retained Substrate cookie session on explicit
+    activation, or renews the active Consumer slot through its own refresh chain.
     """
     try:
         loop = asyncio.get_running_loop()
@@ -251,6 +251,12 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         if k is None:
             return _json_err(401, "Invalid API key", "auth_error")
         body = await request.json()
+        activate = body.get("activate", True)
+        if not isinstance(activate, bool):
+            return _json_err(400, "activate must be a boolean")
+        substrate_account_id = _normalize_consumer_account_id(body.get("substrate_account_id", ""))
+        if body.get("substrate_account_id") and not substrate_account_id:
+            return _json_err(400, "Substrate Microsoft account identity is malformed")
         token = str(body.get("token", "")).strip()
         if not token:
             return _json_err(400, "Token is empty")
@@ -270,12 +276,19 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         # Dedupe by identity: if the pushed token belongs to an M365 account
         # already in the pool, reuse that record instead of creating a duplicate.
         reused = app.state.account_store.find_by_email(email) if email else None
+        if not activate and reused is not None and reused.id != k.account_id:
+            return _json_err(409, "Saving inactive credentials must not rebind another account")
         displaced = 0  # how many other users we bumped off the reused account
         if reused is not None:
             # Take over the shared identity: refresh its token, bind this key,
             # and displace every OTHER key currently pointing at it so those
             # users get a "your account was taken over" notice on their page.
-            acc = app.state.account_store.push_token(reused.id, token)
+            try:
+                acc = app.state.account_store.push_token(
+                    reused.id, token, substrate_account_id=substrate_account_id, activate=activate,
+                )
+            except ValueError as exc:
+                return _json_err(409, str(exc))
             now = time.time()
             for other in app.state.key_store.list_for_account(reused.id):
                 if other.id == k.id:
@@ -295,13 +308,42 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         else:
             acc_id = k.account_id
             if not acc_id or app.state.account_store.get(acc_id) is None:
-                acc = app.state.account_store.add(name=k.name or "user", token=token, token_source="manual")
+                acc = app.state.account_store.add(
+                    name=k.name or "user", token=token, token_source="manual",
+                    display_email=body.get("display_email") or "",
+                    substrate_account_id=substrate_account_id,
+                )
                 app.state.key_store.update(k.id, account_id=acc.id, displaced_at=0.0)
             else:
-                acc = app.state.account_store.push_token(acc_id, token)
+                try:
+                    acc = app.state.account_store.push_token(
+                        acc_id, token, display_email=body.get("display_email") or "",
+                        substrate_account_id=substrate_account_id, activate=activate,
+                    )
+                except ValueError as exc:
+                    return _json_err(409, str(exc))
                 if k.displaced_at:
                     app.state.key_store.update(k.id, displaced_at=0.0)
-        return {"status": "ok", "token_status": acc.token_status() if acc else None, "displaced": displaced}
+        return {"status": "ok", "token_status": acc.token_status() if acc else None, "displaced": displaced, "provider": acc.provider if acc else "m365"}
+
+    @app.post("/user/account/protocol")
+    async def user_set_account_protocol(request: Request) -> dict:
+        k = _resolve_user_key(request)
+        if k is None:
+            return _json_err(401, "Invalid API key", "auth_error")
+        body = await request.json()
+        provider = body.get("provider")
+        if provider not in ("m365", "consumer"):
+            return _json_err(400, "Unknown account protocol")
+        try:
+            account = app.state.account_store.activate_protocol(k.account_id, provider)
+        except ValueError as exc:
+            return _json_err(409, str(exc))
+        if account is None:
+            return _json_err(400, "No bound account")
+        if provider == "consumer" or (account.cookies and (account.token_source != "cdp" or not account.cookie_valid)):
+            _spawn_post_push_refresh(app.state.refresh_scheduler, account.id, force=True)
+        return {"status": "ok", "provider": account.provider, "account": user_account_public(account)}
 
     @app.post("/user/account/media-auth")
     async def user_set_account_media_auth(request: Request) -> dict:
@@ -349,8 +391,8 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         if not k.account_id or app.state.account_store.get(k.account_id) is None:
             return _json_err(400, "No bound account")
         account = app.state.account_store.get(k.account_id)
-        if getattr(account, "provider", "m365") != "m365":
-            return _json_err(400, "Refresh tokens only apply to M365 accounts")
+        if account.token.count(".") != 2:
+            return _json_err(400, "Substrate refresh tokens require a saved Substrate JWT")
         body = await request.json()
         rt = str(body.get("refresh_token", "") or "").strip()
         if len(rt) < 20:
@@ -411,6 +453,9 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         app.state.account_store.set_cookies(k.account_id, cookies, local_storage)
         if media_seed_url:
             app.state.account_store.set_media_seed_url(k.account_id, media_seed_url)
+        if app.state.account_store.get(k.account_id).provider == "consumer":
+            return {"status": "ok", "injected": 0, "total": len(cookies),
+                    "warning": "Substrate cookies saved for the inactive protocol; no browser was started"}
         injected, total = await app.state.refresh_scheduler.inject_cookies(k.account_id, cookies)
         acc = app.state.account_store.get(k.account_id)
         warning = ""
@@ -439,15 +484,16 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
     async def user_set_account_consumer(request: Request) -> dict:
         """Ingest a consumer (personal-account) Copilot credential snapshot.
 
-        Deliberately unlike /user/account/cookies: no Chromium injection, because
-        a consumer account has no substrate token to capture. set_consumer_auth
-        flips the provider so this push and every later refresh use the dedicated
-        Camoufox path instead of the M365 Chromium path.
+        ChatAI cookies and grants stay separate from the retained Substrate slot.
+        Saving may explicitly activate ChatAI; only the active protocol is renewed.
         """
         k = _resolve_user_key(request)
         if k is None:
             return _json_err(401, "Invalid API key", "auth_error")
         body = await request.json()
+        activate = body.get("activate", True)
+        if not isinstance(activate, bool):
+            return _json_err(400, "activate must be a boolean")
         cookies = body.get("cookies", [])
         if not isinstance(cookies, list) or not cookies:
             return _json_err(400, "No cookies provided")
@@ -481,7 +527,6 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         )
         if (
             existing_account is not None
-            and getattr(existing_account, "provider", "m365") == "consumer"
             and existing_consumer_account_id
             and existing_consumer_account_id != consumer_account_id
         ):
@@ -566,22 +611,21 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
             acc = app.state.account_store.add(name=account_name or k.name or k.username or "user")
             app.state.key_store.update(k.id, account_id=acc.id, displaced_at=0.0)
             k = app.state.key_store.get(k.id) or k
-        acc = app.state.account_store.set_consumer_auth(
-            k.account_id,
-            cookies,
-            token,
-            identity_type,
-            email,
-            consumer_account_id,
-            expires_at=consumer_expires_at,
-            consumer_refresh_token=consumer_refresh_token or None,
-            consumer_refresh_token_client_id=consumer_rt_client_id or None,
-            consumer_refresh_token_scope=consumer_rt_scope or None,
-        )
+        try:
+            acc = app.state.account_store.set_consumer_auth(
+                k.account_id, cookies, token, identity_type, email, consumer_account_id,
+                expires_at=consumer_expires_at,
+                consumer_refresh_token=consumer_refresh_token or None,
+                consumer_refresh_token_client_id=consumer_rt_client_id or None,
+                consumer_refresh_token_scope=consumer_rt_scope or None,
+                activate=activate,
+            )
+        except ValueError as exc:
+            return _json_err(409, str(exc))
         if acc is None:
             return _json_err(400, "No bound account")
-        resolved_name = account_name or acc.email
-        if resolved_name and acc.name != resolved_name:
+        resolved_name = account_name or acc.display_email
+        if activate and resolved_name and acc.name != resolved_name:
             app.state.account_store.rename(k.account_id, resolved_name)
         # The pushed cf_clearance was minted against the user's own browser
         # fingerprint, which the Firefox-impersonating consumer transport cannot
@@ -592,8 +636,9 @@ def register_user_routes(app: FastAPI, resolved_settings: Settings, tone_options
         # cookies/token; every refresh_consumer failure path returns without
         # touching them, and its snapshot guard drops the result if a newer push
         # lands meanwhile.
-        _spawn_post_push_refresh(app.state.refresh_scheduler, k.account_id, force=True)
-        return {"status": "ok", "provider": "consumer", "cookies": len(acc.cookies)}
+        if acc.provider == "consumer":
+            _spawn_post_push_refresh(app.state.refresh_scheduler, k.account_id, force=True)
+        return {"status": "ok", "provider": acc.provider, "cookies": len(acc.consumer_cookies)}
 
     @app.post("/user/account/proxy")
     async def user_set_account_proxy(request: Request) -> dict:

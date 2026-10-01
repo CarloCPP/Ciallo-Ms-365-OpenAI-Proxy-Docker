@@ -625,6 +625,28 @@ def test_same_key_rebound_to_another_account_gets_a_distinct_session():
     assert any(key.startswith("key_a:account_b:") for key in keys)
 
 
+def test_epoch_zero_resumes_persisted_header_session_after_restart(tmp_path):
+    persist_path = tmp_path / "sessions.json"
+    app = _app(persist_path)
+    legacy = app.state.session_store.get("key_a:account_a:header:legacy")
+    legacy.reserve_turn()
+    conversation_id = legacy.conversation_id
+
+    restarted = _app(persist_path)
+    raw = _raw_request("key_a", "account_a")
+    raw.state.account.provider = "m365"
+    raw.state.account.protocol_epoch = 0
+    raw.headers["x-m365-session-id"] = "legacy"
+    continued = _persistent_session(restarted, raw, "Magic")
+
+    assert continued.conversation_id == conversation_id
+    assert continued.turn_count == 1
+    continued.reserve_turn()
+    assert restarted.state.session_store.get_existing(
+        "key_a:account_a:header:legacy"
+    ).turn_count == 2
+
+
 def test_resending_an_unnamed_first_turn_gets_isolated_keys():
     """Identical unnamed openers cannot be classified as retries safely."""
     app = _app()

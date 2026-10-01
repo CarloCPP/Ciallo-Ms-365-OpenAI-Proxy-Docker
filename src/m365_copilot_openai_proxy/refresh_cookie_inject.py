@@ -46,7 +46,7 @@ _CDP_LOGIN_DIAG_JS = """
 """
 
 
-def _apply_opportunistic_token(accounts, account_id: str, account_email: str, grabbed: str | None) -> bool:
+def _apply_opportunistic_token(accounts, account_id: str, account_email: str, grabbed: str | None, *, expected_epoch: int | None = None) -> bool:
     """Decide whether an opportunistically grabbed token may be written.
 
     Pure/synchronous so it is unit-testable without a Chromium session. The
@@ -60,7 +60,8 @@ def _apply_opportunistic_token(accounts, account_id: str, account_email: str, gr
         _, captured_email = extract_identity(grabbed)
         elog(f"Cookie injection skipped opportunistic token for {account_id}: identity mismatch (account={account_email!r}, captured={captured_email!r})")
         return False
-    accounts.update_token(account_id, grabbed, token_source="cdp")
+    if accounts.update_token(account_id, grabbed, token_source="cdp", activate=False, expected_epoch=expected_epoch) is None:
+        return False
     accounts.set_cookie_status(account_id, True, token_source="cdp", expires_at=time.time() + _SESSION_COOKIE_PERSIST_SECONDS)
     ulog(f"Cookie injection opportunistically captured token for {account_id} (no nudge, same session)")
     return True
@@ -112,8 +113,8 @@ async def inject_cookies_one(
     launch_timeout_seconds,
     allow_nudge: bool = False,
 ) -> tuple[int, int]:
-    account = accounts.get(account_id)
-    if account is None:
+    account = accounts.get_request_snapshot(account_id)
+    if account is None or account.provider != "m365":
         return 0, len(cookies or [])
     profile_dir = profile_root / account_id
     # Wipe the persistent profile before injecting the freshly pushed cookies.
@@ -267,6 +268,8 @@ async def inject_cookies_one(
                         ulog(f"Cookie inject diag [{account_id}] page={diag}")
                 except Exception:
                     pass
+        if not accounts.is_protocol_current(account_id, account.protocol_epoch, "m365"):
+            return injected, attempted
         if attempted > 0 and injected == attempted and not _is_login_url(final_url):
             # Legacy (v7 / single-tenant) behaviour: a completed cookie
             # injection that is NOT redirected to a login page arms CDP
@@ -298,7 +301,7 @@ async def inject_cookies_one(
                     from .cli import _cdp_extract_token
 
                     grabbed = await _cdp_extract_token(account.cdp_port, allow_nudge=allow_nudge, expected_email=account.email)
-                    _apply_opportunistic_token(accounts, account_id, account.email, grabbed)
+                    _apply_opportunistic_token(accounts, account_id, account.email, grabbed, expected_epoch=account.protocol_epoch)
                 except Exception as exc:
                     elog(f"Cookie injection opportunistic token skipped for {account_id}: {exc}")
                 # Best-effort media/designer auth harvest in the SAME live session.
@@ -311,6 +314,8 @@ async def inject_cookies_one(
                     from .cli import _cdp_extract_resource_tokens
 
                     resources = await _cdp_extract_resource_tokens(account.cdp_port)
+                    if not accounts.is_protocol_current(account_id, account.protocol_epoch, "m365"):
+                        return injected, attempted
                     if resources.get("media"):
                         accounts.set_media_auth_token(account_id, resources["media"])
                     if resources.get("designer"):
@@ -329,6 +334,8 @@ async def inject_cookies_one(
                         from .cli_cdp import _cdp_capture_media_auth
 
                         captured = await _cdp_capture_media_auth(account.cdp_port, seed_url)
+                        if not accounts.is_protocol_current(account_id, account.protocol_epoch, "m365"):
+                            return injected, attempted
                         if captured.get("media"):
                             accounts.set_media_auth_token(account_id, captured["media"])
                         if captured.get("designer"):

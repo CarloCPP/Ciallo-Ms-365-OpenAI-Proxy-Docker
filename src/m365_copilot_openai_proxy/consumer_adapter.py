@@ -23,9 +23,10 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
-from .consumer_client import ConsumerCopilotClient, ConsumerCopilotError
+from .consumer_client import ConsumerCopilotClient, ConsumerCopilotError, ConsumerNetworkError
 from .consumer_prompt import compact_consumer_prompt
-from .substrate_client import SubstrateCopilotError
+from .sse_stream import closing_stream
+from .substrate_client import SubstrateCopilotError, SubstrateNetworkError
 from .substrate_parse import _combine_text
 
 
@@ -65,17 +66,20 @@ class ConsumerClientAdapter:
             if len(text) > self.max_prompt_chars:
                 text = compact_consumer_prompt(prompt, context, self.max_prompt_chars)
         try:
-            async for chunk in self._client.chat_stream(text, images=images):
-                yield chunk
+            async with closing_stream(self._client.chat_stream(text, images=images)) as owned_stream:
+                async for chunk in owned_stream:
+                    yield chunk
         except ConsumerCopilotError as exc:
-            # Collapses ClearanceRequired/RegionBlocked too: the routes only know
-            # SubstrateCopilotError, and upstream_http_error keys on marker
-            # strings, so a consumer clearance/region failure surfaces as a 502
-            # carrying its own message -- which is the correct operator signal.
+            # Preserve transport classification; clearance and region refusals
+            # remain upstream errors rather than pretending to be network faults.
             detail = str(exc)
-            if self.mode_status == "experimental":
+            if self.mode_status == "experimental" and not isinstance(exc, ConsumerNetworkError):
                 detail = f"{detail}；{_EXPERIMENTAL_MODE_HINT}"
-            translated = SubstrateCopilotError(detail)
+            translated = (
+                SubstrateNetworkError(detail)
+                if isinstance(exc, ConsumerNetworkError)
+                else SubstrateCopilotError(detail)
+            )
             # Keep the reset timestamp across the route-contract adapter. The
             # HTTP layer uses it to return a useful Retry-After instead of
             # treating an account quota refusal as a generic 502.

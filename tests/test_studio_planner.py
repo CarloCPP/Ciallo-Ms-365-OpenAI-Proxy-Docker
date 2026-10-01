@@ -334,7 +334,6 @@ def test_answer_falls_back_when_studio_returns_no_tool_call():
 @pytest.mark.parametrize(
     ("script", "predicate", "expected_reason"),
     [
-        ([SubstrateCopilotError("studio failed")], None, "upstream_error"),
         (["plain studio answer"], lambda _text: True, "no_tool_call"),
     ],
 )
@@ -654,3 +653,36 @@ def test_ordered_streamed_without_studio_keeps_router_ordinary_answer():
 
     assert asyncio.run(run()) == ["router answer"]
     assert calls == ["router"]
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_studio_failure_diagnostics_preserve_the_exception_and_fallback(streaming, caplog):
+    error = SubstrateCopilotError("Studio connection was interrupted")
+    reasons = []
+    fallback_calls = []
+
+    async def fallback_answer():
+        fallback_calls.append("answer")
+        return "usable fallback"
+
+    async def fallback_stream():
+        fallback_calls.append("stream")
+        yield "usable fallback"
+
+    async def run():
+        turn = PlannerTurn(ScriptedClient([error]), "prompt", [])
+        if streaming:
+            return "".join([chunk async for chunk in planned_or_streamed(
+                studio_turn=turn, fallback_turn=fallback_stream, on_fallback=reasons.append,
+            )])
+        return await planned_or_answered(
+            studio_turn=turn, fallback_turn=fallback_answer, on_fallback=reasons.append,
+        )
+
+    assert asyncio.run(run()) == "usable fallback"
+    assert fallback_calls == (["stream"] if streaming else ["answer"])
+    assert len(reasons) == 1
+    assert str(error) in reasons[0]
+    assert type(error).__name__ in reasons[0]
+    assert any(record.levelname == "WARNING" and record.exc_info
+               and record.exc_info[1] is error for record in caplog.records)

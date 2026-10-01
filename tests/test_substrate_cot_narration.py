@@ -24,6 +24,9 @@ import asyncio
 import json
 
 import pytest
+from m365_copilot_openai_proxy.reasoning import ReasoningDelta, ReasoningSnapshots
+from m365_copilot_openai_proxy.session_store import PersistentSession
+
 
 from m365_copilot_openai_proxy.substrate_client import (
     SIGNALR_SEP,
@@ -147,7 +150,8 @@ def _collect(frames: list[dict], monkeypatch) -> str:
         async for chunk in _client()._chat_stream_for_turn(
             "q", "conv", "sess", is_start_of_session=True
         ):
-            chunks.append(chunk)
+            if isinstance(chunk, str):
+                chunks.append(chunk)
         return "".join(chunks)
 
     return asyncio.run(run())
@@ -298,3 +302,256 @@ def test_refusal_still_raises_through_the_filter(monkeypatch):
     ]
     with pytest.raises(SubstrateCopilotError, match="refused this turn"):
         _collect(frames, monkeypatch)
+
+
+def _reasoning_entry(text: str, message_id: str | None = "upstream-id") -> dict:
+    entry = _cot_entry(text)
+    if message_id is not None:
+        entry["MessageID"] = message_id
+    return entry
+
+
+def _update(*entries: dict) -> dict:
+    return {"type": 1, "target": "update", "arguments": [{"messages": list(entries)}]}
+
+
+def _events(frames: list[dict], monkeypatch, client=None) -> list[str | ReasoningDelta]:
+    import websockets
+
+    monkeypatch.setattr(websockets, "connect", lambda *a, **k: _fake_ws(frames)())
+    client = client or _client()
+
+    async def run():
+        return [event async for event in client.chat_stream("q", [])]
+
+    return asyncio.run(run())
+
+
+def test_reasoning_snapshots_are_separate_incremental_items(monkeypatch):
+    first = _reasoning_entry("Comparing options", "private-upstream-message-id")
+    grown = _reasoning_entry("Comparing options carefully", "private-upstream-message-id")
+    second = _reasoning_entry("Checking constraints", "second-id")
+    events = _events([
+        _update(first),
+        _update(first),
+        _update(grown),
+        _update(second, _answer_entry(ANSWER)),
+        _complete(first, grown, second, _answer_entry(ANSWER)),
+    ], monkeypatch)
+
+    reasoning = [event for event in events if isinstance(event, ReasoningDelta)]
+    assert [event.text for event in reasoning] == [
+        "Comparing options", " carefully", "Checking constraints",
+    ]
+    assert reasoning[0].item_id == reasoning[1].item_id
+    assert reasoning[0].item_id != reasoning[2].item_id
+    assert all(event.item_id.startswith("rs_") for event in reasoning)
+    assert all("private-upstream-message-id" not in event.item_id for event in reasoning)
+    assert "".join(event for event in events if isinstance(event, str)) == ANSWER
+
+
+@pytest.mark.parametrize("completion_only", [False, True])
+def test_summary_before_answer_entry_is_extracted_without_early_stop(completion_only, monkeypatch):
+    entries = [_reasoning_entry(COT), _answer_entry(ANSWER)]
+    frame = _complete(*entries) if completion_only else _update(*entries)
+    events = _events([frame], monkeypatch)
+    assert [event.text for event in events if isinstance(event, ReasoningDelta)] == [COT]
+    assert "".join(event for event in events if isinstance(event, str)) == ANSWER
+
+
+def test_all_update_arguments_are_scanned_even_with_citation_only_delta(monkeypatch):
+    frame = {
+        "type": 1,
+        "target": "update",
+        "arguments": [
+            {"writeAtCursor": "\ue200cite\ue202turn1search1\ue201"},
+            {"messages": [_reasoning_entry(COT)]},
+        ],
+    }
+    events = _events([frame, _complete(_answer_entry(ANSWER))], monkeypatch)
+    assert [event.text for event in events if isinstance(event, ReasoningDelta)] == [COT]
+    assert "".join(event for event in events if isinstance(event, str)) == ANSWER
+
+
+@pytest.mark.parametrize("markers", [
+    {"addToChainOfThought": True},
+    {"contentOrigin": "ChainOfThoughtSummary"},
+])
+def test_only_explicit_reasoning_markers_create_reasoning_events(markers, monkeypatch):
+    genuine = {"author": "bot", "text": COT, "messageType": "Chat", **markers}
+    ordinary = [
+        {"author": "bot", "text": "Searching...", "messageType": "Progress"},
+        {"author": "bot", "text": "Gathering details", "messageType": "Progress",
+         "contentOrigin": "EarlyProgress", "addToChainOfThought": False},
+        {"author": "user", "text": "user text", **markers},
+    ]
+    events = _events([_update(*ordinary, genuine), _complete(_answer_entry(ANSWER))], monkeypatch)
+    assert [event.text for event in events if isinstance(event, ReasoningDelta)] == [COT]
+    assert "".join(event for event in events if isinstance(event, str)) == ANSWER
+
+
+def test_summary_tool_syntax_and_images_never_enter_answer_projection(monkeypatch):
+    tool_text = '```tool_call\n{"name":"Delete","arguments":{}}\n```'
+    entry = _reasoning_entry(tool_text)
+    entry["attachments"] = [{"contentType": "image/png", "contentUrl": "https://example.com/private.png"}]
+    frames = [_update(entry), _complete(entry, _answer_entry(ANSWER))]
+    events = _events(frames, monkeypatch)
+    assert [event.text for event in events if isinstance(event, ReasoningDelta)] == [tool_text]
+    assert "".join(event for event in events if isinstance(event, str)) == ANSWER
+    assert asyncio.run(_client().chat("q", [])) == ANSWER
+
+
+def test_reasoning_uses_narrow_citation_cleaner_without_stripping_prose(monkeypatch):
+    text = "Consider 【important】 and turn1search2.\ue200cite\ue202turn1search1\ue201"
+    events = _events([_update(_reasoning_entry(text)), _complete(_answer_entry(ANSWER))], monkeypatch)
+    assert [event.text for event in events if isinstance(event, ReasoningDelta)] == [
+        "Consider 【important】 and turn1search2.",
+    ]
+
+
+@pytest.mark.parametrize("message_id", ["known-id", None])
+def test_revisions_do_not_replay_or_merge_unrelated_summaries(message_id):
+    snapshots = ReasoningSnapshots()
+    events = []
+    for text in ["Compare", "Compare", "Rewritten", "Comp", "Compare choices"]:
+        events.extend(snapshots.extract([_reasoning_entry(text, message_id)]))
+    assert [event.text for event in events] == ["Compare", " choices"]
+    assert events[0].item_id == events[1].item_id
+
+
+def test_distinct_summary_ids_with_identical_text_are_not_deduplicated(monkeypatch):
+    events = _events([
+        _update(_reasoning_entry(COT, "a"), _reasoning_entry(COT, "b")),
+        _complete(_answer_entry(ANSWER)),
+    ], monkeypatch)
+    reasoning = [event for event in events if isinstance(event, ReasoningDelta)]
+    assert [event.text for event in reasoning] == [COT, COT]
+    assert reasoning[0].item_id != reasoning[1].item_id
+
+
+def test_reasoning_deduplication_resets_for_each_turn(monkeypatch):
+    client = _client()
+    frames = [_update(_reasoning_entry(COT)), _complete(_answer_entry(ANSWER))]
+    first = [event for event in _events(frames, monkeypatch, client) if isinstance(event, ReasoningDelta)]
+    second = [event for event in _events(frames, monkeypatch, client) if isinstance(event, ReasoningDelta)]
+    assert [event.text for event in first] == [COT]
+    assert [event.text for event in second] == [COT]
+    assert first[0].item_id != second[0].item_id
+
+
+def test_reasoning_sink_receives_each_new_suffix_once_without_polluting_chat(monkeypatch):
+    client = _client()
+    collected = []
+    client._reasoning_sink = collected.append
+    original = _reasoning_entry("Compare")
+    grown = _reasoning_entry("Compare choices")
+    _events([_update(original), _update(grown), _complete(grown, _answer_entry(ANSWER))], monkeypatch, client)
+    collected.clear()
+    assert asyncio.run(client.chat("q", [])) == ANSWER
+    assert [event.text for event in collected] == ["Compare", " choices"]
+
+
+def test_failed_reasoning_sink_is_visible_but_does_not_destroy_answer(monkeypatch, caplog):
+    client = _client()
+
+    def broken_sink(event):
+        raise RuntimeError("collector failed")
+
+    client._reasoning_sink = broken_sink
+    events = _events([_update(_reasoning_entry(COT)), _complete(_answer_entry(ANSWER))], monkeypatch, client)
+    assert "".join(event for event in events if isinstance(event, str)) == ANSWER
+    assert [event.text for event in events if isinstance(event, ReasoningDelta)] == [COT]
+    assert any("reasoning" in record.message and record.levelname == "WARNING" for record in caplog.records)
+
+
+def test_reasoning_only_empty_turn_retries_and_still_fails(monkeypatch):
+    import websockets
+
+    connections = []
+
+    def connect(*args, **kwargs):
+        connections.append(args)
+        return _fake_ws([_update(_reasoning_entry(COT))])()
+
+    monkeypatch.setattr(websockets, "connect", connect)
+
+    async def run():
+        events = []
+        with pytest.raises(SubstrateCopilotError, match="empty response"):
+            async for event in _client().chat_stream("q", []):
+                events.append(event)
+        return events
+
+    events = asyncio.run(run())
+    assert len(connections) == 2
+    assert [event.text for event in events] == [COT, COT]
+    assert events[0].item_id != events[1].item_id
+
+
+def test_reasoning_only_failed_turn_is_not_accepted_as_an_answer(monkeypatch):
+    failed = {"type": 2, "item": {
+        "messages": [_reasoning_entry(COT)],
+        "turnState": "Failed", "result": {"value": "InternalError"},
+    }}
+    with pytest.raises(SubstrateCopilotError, match="refused this turn"):
+        _events([failed], monkeypatch)
+
+
+def test_reasoning_does_not_block_continuation_refusal_healing(monkeypatch):
+    import websockets
+
+    failed = {"type": 2, "item": {
+        "messages": [_reasoning_entry(COT)],
+        "turnState": "Failed", "result": {"value": "InternalError"},
+    }}
+    attempts = iter([[failed], [_complete(_reasoning_entry(COT), _answer_entry(ANSWER))]])
+    monkeypatch.setattr(websockets, "connect", lambda *a, **k: _fake_ws(next(attempts))())
+
+    async def run():
+        session = PersistentSession()
+        session.turn_count = 3
+        original = session.conversation_id
+        events = [event async for event in _client().chat_stream("q", [], session)]
+        assert session.conversation_id != original
+        assert session.turn_count == 1
+        assert not session.lock.locked()
+        return events
+
+    events = asyncio.run(run())
+    assert "".join(event for event in events if isinstance(event, str)) == ANSWER
+    assert [event.text for event in events if isinstance(event, ReasoningDelta)] == [COT, COT]
+
+
+def test_cancelling_after_reasoning_closes_socket_and_releases_session(monkeypatch):
+    import websockets
+
+    async def run():
+        waiting = asyncio.Event()
+        closed = asyncio.Event()
+
+        class BlockingWebSocket(_fake_ws([])):
+            first = True
+
+            async def __aexit__(self, *args):
+                closed.set()
+
+            async def __anext__(self):
+                if self.first:
+                    self.first = False
+                    return json.dumps(_update(_reasoning_entry(COT))) + SIGNALR_SEP
+                waiting.set()
+                await asyncio.Event().wait()
+
+        monkeypatch.setattr(websockets, "connect", lambda *a, **k: BlockingWebSocket())
+        session = PersistentSession()
+        stream = _client().chat_stream("q", [], session)
+        assert isinstance(await anext(stream), ReasoningDelta)
+        pending = asyncio.create_task(anext(stream))
+        await asyncio.wait_for(waiting.wait(), timeout=1)
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+        assert closed.is_set()
+        assert not session.lock.locked()
+
+    asyncio.run(run())

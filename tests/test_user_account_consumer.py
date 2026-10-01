@@ -78,8 +78,7 @@ def test_consumer_push_creates_account_flips_provider_and_binds_key(tmp_path):
     assert account.consumer_token == TOKEN
     assert account.consumer_identity_type == "MSA"
     assert account.consumer_account_id == "home:personal.account-1"
-    assert account.cookies == COOKIES
-    assert account.cookie_valid is True
+    assert account.consumer_cookies == COOKIES
     assert account.name == "Personal User"
 
 
@@ -128,7 +127,7 @@ def test_consumer_push_normalizes_and_stores_email_without_changing_response(tmp
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "provider": "consumer", "cookies": 1}
     account_id = app.state.key_store.get(key.id).account_id
-    assert app.state.account_store.get(account_id).email == "person.account@example.com"
+    assert app.state.account_store.get(account_id).consumer_email == "person.account@example.com"
 
 
 def test_consumer_push_replaces_a_stale_name_with_valid_email_when_name_is_blank(tmp_path):
@@ -150,14 +149,14 @@ def test_consumer_push_replaces_a_stale_name_with_valid_email_when_name_is_blank
 
     assert response.status_code == 200
     updated = app.state.account_store.get(account.id)
-    assert updated.email == "ouyouakira@hotmail.com"
+    assert updated.consumer_email == "ouyouakira@hotmail.com"
     assert updated.name == "ouyouakira@hotmail.com"
 
 
 def test_consumer_push_blank_email_does_not_overwrite_stored_email(tmp_path):
     app = make_test_app(tmp_path)
     account = app.state.account_store.add(name="Personal User")
-    account.email = "kept@example.com"
+    account.consumer_email = "kept@example.com"
     key = app.state.key_store.add(
         name="Proxy User",
         account_id=account.id,
@@ -191,7 +190,7 @@ def test_consumer_push_blank_email_does_not_overwrite_stored_email(tmp_path):
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "provider": "consumer", "cookies": 1}
-    assert app.state.account_store.get(account.id).email == "replacement@example.com"
+    assert app.state.account_store.get(account.id).consumer_email == "replacement@example.com"
 
 
 def test_consumer_push_invalid_email_does_not_overwrite_stored_email(tmp_path):
@@ -219,7 +218,7 @@ def test_consumer_push_invalid_email_does_not_overwrite_stored_email(tmp_path):
     )
 
     assert response.status_code == 200
-    assert app.state.account_store.get(account.id).email == "kept@example.com"
+    assert app.state.account_store.get(account.id).consumer_email == "kept@example.com"
 
 
 def test_consumer_subject_change_requires_explicit_logout(tmp_path):
@@ -252,7 +251,7 @@ def test_consumer_subject_change_requires_explicit_logout(tmp_path):
     assert second.status_code == 409
     current = app.state.account_store.get(account.id)
     assert current.consumer_account_id == "home:account-a"
-    assert current.email == "a@example.com"
+    assert current.consumer_email == "a@example.com"
 
     logout = client.post(
         "/user/account/logout",
@@ -272,10 +271,10 @@ def test_consumer_subject_change_requires_explicit_logout(tmp_path):
     assert switched.status_code == 200
     current = app.state.account_store.get(account.id)
     assert current.consumer_account_id == "home:account-b"
-    assert current.email == ""
+    assert current.consumer_email == ""
 
 
-def test_consumer_push_clears_a_stale_m365_cookie_expiry(tmp_path):
+def test_consumer_push_preserves_but_does_not_expose_substrate_cookie_expiry(tmp_path):
     app = make_test_app(tmp_path)
     account = app.state.account_store.add(name="Converted Work Account")
     account.cookie_expires_at = 123.0
@@ -294,7 +293,9 @@ def test_consumer_push_clears_a_stale_m365_cookie_expiry(tmp_path):
     assert response.status_code == 200
     converted = app.state.account_store.get(account.id)
     assert converted.provider == "consumer"
-    assert converted.cookie_expires_at == 0.0
+    assert converted.cookie_expires_at == 123.0
+    public = TestClient(app).get("/user/me", headers={"Authorization": f"Bearer {key.key}"}).json()["account"]
+    assert public["cookie_expires_at"] == 0.0
 
 
 def test_consumer_logout_fully_signs_out_a_consumer_account(tmp_path):
@@ -338,7 +339,7 @@ def test_consumer_logout_fully_signs_out_a_consumer_account(tmp_path):
     assert account.provider == "m365"
     assert account.consumer_token == ""
     assert account.consumer_identity_type == ""
-    assert account.cookies == []
+    assert account.consumer_cookies == []
     assert account.cookie_valid is False
     assert account.token_status()["valid"] is False
     assert not current_profile.exists()
@@ -678,7 +679,7 @@ def test_in_flight_consumer_refresh_cannot_revert_m365_provider_switch(tmp_path)
     # Switch to m365 via token update
     jwe = make_jwe({"alg": "RSA-OAEP"})
     assert is_valid_substrate_jwe(jwe)
-    store.update_token(account.id, jwe)
+    store.update_token(account.id, jwe, substrate_account_id="home:account-a")
     assert store.get(account.id).provider == "m365"
 
     # In-flight consumer refresh finishes and attempts CAS commit
