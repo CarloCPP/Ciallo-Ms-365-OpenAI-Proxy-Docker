@@ -11,7 +11,7 @@ The minimum matrix is:
 3. Studio planning/tool path.
 4. Anthropic Messages API (the Claude Code-compatible protocol), including an API-level tool loop when the change can affect tools or continuation. Running the Claude Code client is not required.
 5. OpenAI Responses API (the Codex-compatible protocol), including an API-level tool loop when the change can affect tools or continuation. Running the Codex client is not required.
-6. Microsoft 365 Personal/Consumer provider path.
+6. Microsoft 365 Personal/Consumer provider path, including personal Substrate JWE mode: sign in at `copilot.com`, push the Substrate JWE through the userscript, and verify the account routes through the personal Substrate path.
 
 For streaming, tool-calling, continuation, session, or transport changes, exercise the affected behavior rather than only checking a health endpoint or one-shot text response. Record concrete pass/fail evidence for every matrix item.
 

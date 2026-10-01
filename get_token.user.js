@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciallo Ms-365 Proxy
 // @namespace    https://m365.cloud.microsoft
-// @version      1.0.74
+// @version      1.0.78
 // @description  提取 M365 Copilot 完整 Cookie（含 httpOnly）推送到代理服务实现登录
 // @match        https://m365.cloud.microsoft/*
 // @match        https://microsoft365.com/*
@@ -16,6 +16,9 @@
 // @match        https://*.teams.microsoft.com/*
 // @match        https://microsoft.com/*
 // @match        https://*.microsoft.com/*
+// @match        https://copilot.com/*
+// @match        https://*.copilot.com/*
+// @match        https://*.cloud.microsoft/*
 // @grant        GM_cookie
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
@@ -30,7 +33,7 @@
 (function() {
     'use strict';
 
-    const SCRIPT_VERSION = '1.0.74';
+    const SCRIPT_VERSION = '1.0.78';
     const SUBSTRATE_WS_RE = /wss:\/\/substrate\.office\.com\/.*[?&]access_token=([^&]+)/;
     const M365_RT_CLIENT_ID = '4765445b-32c6-49b0-83e6-1d93765276ca';
     // Consumer (personal-account) Copilot puts its ChatAI token in the chat
@@ -38,12 +41,10 @@
     // captures both tokens (the outgoing-frame tap stays Substrate-only).
     // copilot.microsoft.com is already covered by the
     // https://*.microsoft.com/* @match, so no new @match is needed.
-    const CONSUMER_WS_RE = /wss:\/\/copilot\.microsoft\.com\/.*[?&]accessToken=([^&]+)/;
+    const CONSUMER_WS_RE = /wss:\/\/(?:copilot\.microsoft\.com|(?:[a-z0-9-]+\.)*copilot\.com)\/.*[?&]accessToken=([^&]+)/;
     const CONSUMER_IDENTITY_RE = /[?&]X-UserIdentityType=([^&]+)/;
-    // Which product the current tab belongs to. The two Copilots live on
-    // different hosts and need different pushes, so the panel leads with the
-    // section that can actually work here and tucks the other one away.
-    const IS_CONSUMER_SITE = location.hostname === 'copilot.microsoft.com';
+    // 域名仅用于尚未捕获凭据时的初始提示；同一站点也可能使用不同协议。
+    const IS_CONSUMER_SITE = location.hostname === 'copilot.microsoft.com' || location.hostname === 'copilot.com' || location.hostname.endsWith('.copilot.com');
     // Hosts that belong to the M365 (work/school) Copilot. The login domains are
     // deliberately on NEITHER list: mid-login we cannot tell which product the
     // user is heading for, so the panel falls back to showing both sections.
@@ -121,28 +122,28 @@
             push_media_auth: '推送媒体鉴权',
             media_auth_pushed: '媒体鉴权已推送',
             no_media_auth: '尚未捕获 Media Bearer。请先在 M365 页面生成/播放一次媒体。',
-            consumer_captured: '✓ ChatAI Token 可用',
-            consumer_not_captured: '⚠ 尚未捕获（先在 copilot.microsoft.com 发一条消息）',
-            no_consumer_token: '尚未捕获个人版 ChatAI Token。请在 copilot.microsoft.com 登录并发送一条消息后重试。',
+            consumer_captured: '✓ ChatAI Token 已捕获',
+            consumer_not_captured: '⚠ 尚未捕获 ChatAI Token；此入口仅用于 ChatAI 协议会话。',
+            no_consumer_token: '尚未捕获 ChatAI Token。此入口只适用于实际使用 ChatAI 协议的会话。',
+            consumer_use_substrate: '当前会话已捕获 Substrate，请使用上方 Substrate 入口。',
             no_consumer_identity: '无法把 ChatAI Token 对应到唯一的微软账户。请在当前个人版账户中重新发送一条消息后再推送。',
-            consumer_pushed: '个人版 Copilot 已推送，Cookie 数：',
-            // ---- 两个产品分区 ----
-            section_m365: ' M365 商业版',
-            section_consumer: ' 个人版 Copilot',
-            // 抓帧钩子只装在 Substrate 分支（见 WebSocket 包装里的 if (match)），
-            // 个人版 socket 不抓帧，所以这一节只对 M365 有效。
-            section_capture_scope: '仅 M365',
-            here_now: '当前页面',
-            // 折叠抽屉的标题：当前站点用不到的那个产品收进这里，不直接展示。
-            // M365 的 Cookie 推送查的是绝对域名，跨站也能用，所以只折叠、不移除。
-            other_product: '其他产品',
-            other_product_hint: '（当前页面用不到，展开可用跨站功能）',
-            other_site_m365: '需在 m365.cloud.microsoft 操作',
-            other_site_consumer: '需在 copilot.microsoft.com 操作',
-            consumer_desc: '推送 Cookie + ChatAI Token 到当前账户',
-            consumer_one_click: '一键推送个人版',
-            m365_needs_site: '请先打开 m365.cloud.microsoft 并登录，本页无法采集 M365 凭据。',
-            consumer_needs_site: '请先打开 copilot.microsoft.com 并发送一条消息，本页无法采集个人版凭据。',
+            consumer_pushed: 'ChatAI 凭据已推送，Cookie 数：',
+            // 按协议分区，个人账号也可能使用 Substrate。
+            section_m365: ' Substrate（工作/个人）',
+            section_consumer: ' ChatAI 兼容入口',
+            section_capture_scope: '仅 Substrate',
+            protocol_captured: '已捕获',
+            protocol_missing: '未捕获此协议',
+            protocol_waiting: '等待捕获',
+            // 保留跨站 Cookie 等操作，不因协议状态移除整个分区。
+            other_product: '其他协议 / 跨站功能',
+            other_product_hint: '（按已捕获凭据选择，保留跨站操作）',
+            other_site_m365: '需在 M365 Copilot 或 copilot.com 操作',
+            other_site_consumer: '需在 copilot.microsoft.com 或 copilot.com 操作',
+            consumer_desc: '推送 Cookie + ChatAI Token 到当前账户，不接收 Substrate Token',
+            consumer_one_click: '推送 ChatAI',
+            m365_needs_site: '请在 M365 Copilot 或 copilot.com 的 Substrate 会话中开始正常对话后推送。',
+            consumer_needs_site: '请在使用 ChatAI 协议的 Copilot 会话中采集凭据；Substrate 会话应使用对应入口。',
             quick_setup_desc: '全量推送 Token 和 Cookie 到当前账户',
             one_click: '一键推送',
             manual_config: ' 手动配置',
@@ -180,6 +181,11 @@
             token_push_failed: 'Token 推送失败：',
             token_push_status: 'Token 推送：',
             cookie_push_status: 'Cookie 推送：',
+            media_push_status: 'Media Bearer 推送：',
+            media_skip_not_captured: '尚未捕获 Media Bearer',
+            media_skip_prerequisite: '前置步骤未成功',
+            media_push_network_error: '网络错误或超时',
+            media_push_no_response: '未取得推送结果，请检查用户 API Key 和捕获状态',
             status_success: '成功',
             status_warning: '成功（警告）',
             status_failed: '失败',
@@ -212,28 +218,25 @@
             media_auth_pushed: 'Media auth pushed',
             no_media_auth: 'No Media Bearer captured yet. Generate or play media in M365 first.',
             consumer_captured: '✓ ChatAI token captured',
-            consumer_not_captured: '⚠ not captured (send a message on copilot.microsoft.com first)',
-            no_consumer_token: 'No personal ChatAI token captured yet. Sign in at copilot.microsoft.com, send one message, then retry.',
+            consumer_not_captured: '⚠ No ChatAI token captured; this entry is only for ChatAI sessions.',
+            no_consumer_token: 'No ChatAI token captured. This entry only applies to sessions using the ChatAI protocol.',
+            consumer_use_substrate: 'Substrate was captured for this session. Use the Substrate entry above.',
             no_consumer_identity: 'The ChatAI token could not be matched to one Microsoft account. Send a new message from the current personal account, then push again.',
-            consumer_pushed: 'Personal Copilot pushed, cookies: ',
-            // ---- the two product sections ----
-            section_m365: 'M365 Business',
-            section_consumer: 'Personal Copilot',
-            // The frame hook lives in the Substrate branch only (see if (match)
-            // in the WebSocket wrapper); the consumer socket is not tapped.
-            section_capture_scope: 'M365 only',
-            here_now: 'this page',
-            // Drawer title for the product this host cannot feed. M365 cookie
-            // push queries absolute domains and works cross-site, so the block is
-            // collapsed rather than removed.
-            other_product: 'Other product',
-            other_product_hint: '(not usable on this page; expand for cross-site actions)',
-            other_site_m365: 'open m365.cloud.microsoft to use',
-            other_site_consumer: 'open copilot.microsoft.com to use',
-            consumer_desc: 'Push cookies + ChatAI token to the current account.',
-            consumer_one_click: 'Push Personal',
-            m365_needs_site: 'Open m365.cloud.microsoft and sign in first; M365 credentials cannot be collected from this page.',
-            consumer_needs_site: 'Open copilot.microsoft.com and send one message first; personal credentials cannot be collected from this page.',
+            consumer_pushed: 'ChatAI credentials pushed, cookies: ',
+            section_m365: 'Substrate (work/personal)',
+            section_consumer: 'ChatAI compatibility',
+            section_capture_scope: 'Substrate only',
+            protocol_captured: 'captured',
+            protocol_missing: 'protocol not captured',
+            protocol_waiting: 'waiting for capture',
+            other_product: 'Other protocol / cross-site actions',
+            other_product_hint: '(choose by captured credentials; cross-site actions remain available)',
+            other_site_m365: 'open M365 Copilot or copilot.com to use',
+            other_site_consumer: 'open copilot.microsoft.com or copilot.com to use',
+            consumer_desc: 'Push cookies + ChatAI token, not a Substrate token, to the current account.',
+            consumer_one_click: 'Push ChatAI',
+            m365_needs_site: 'Start a conversation in a Substrate session on M365 Copilot or copilot.com before pushing.',
+            consumer_needs_site: 'Capture credentials in a Copilot session using ChatAI; use the Substrate entry for Substrate sessions.',
             quick_setup_desc: 'Push Token and Cookies to the current account.',
             one_click: 'Push',
             manual_config: 'Manual Config',
@@ -271,6 +274,11 @@
             token_push_failed: 'Token push failed: ',
             token_push_status: 'Token push: ',
             cookie_push_status: 'Cookie push: ',
+            media_push_status: 'Media Bearer push: ',
+            media_skip_not_captured: 'Media Bearer not captured',
+            media_skip_prerequisite: 'a prerequisite did not succeed',
+            media_push_network_error: 'Network error or timeout',
+            media_push_no_response: 'No push result; check the User API Key and capture status',
             status_success: 'success',
             status_warning: 'success with warning',
             status_failed: 'failed',
@@ -1229,6 +1237,8 @@
             { domain: '.teams.microsoft.com' },
             { domain: '.asyncgw.teams.microsoft.com' },
             { url: 'https://copilot.microsoft.com/' },
+            { url: 'https://copilot.com/' },
+            { domain: '.copilot.com' },
             { url: 'https://www.bing.com/' },
             { domain: '.copilot.microsoft.com' },
             { domain: '.bing.com' },
@@ -1364,6 +1374,27 @@
         return { response: r, data: await r.json() };
     }
 
+    function mediaAuthSkippedStatus(reason = 'media_skip_prerequisite') {
+        return tr('media_push_status') + tr('status_skipped') + ' - ' + tr(reason);
+    }
+
+    async function pushMediaAuthWithStatus(base, prerequisiteOk) {
+        if (!prerequisiteOk) return mediaAuthSkippedStatus();
+        if (!latestMediaAuth) return mediaAuthSkippedStatus('media_skip_not_captured');
+        // 媒体失败单独报告，不覆盖已成功的 Token/Cookie 结果。
+        const prefix = tr('media_push_status');
+        try {
+            const mr = await pushUserMediaAuth(base);
+            if (mr?.response.ok) return prefix + tr('status_success');
+            const error = mr?.data?.error?.message || mr?.data?.error;
+            const detail = typeof error === 'string' && error
+                ? error : mr ? 'HTTP ' + mr.response.status : tr('media_push_no_response');
+            return prefix + tr('status_failed') + ' - ' + detail;
+        } catch (e) {
+            return prefix + tr('status_failed') + ' - ' + tr('media_push_network_error');
+        }
+    }
+
     async function pushMediaAuth() {
         const base = getProxyBase();
         if (!base) { alert(tr('enter_proxy_first')); return; }
@@ -1448,11 +1479,12 @@
         if (!latestToken) { alert(IS_M365_SITE ? tr('no_token_ws') : tr('m365_needs_site')); return; }
         try {
             const ur = await pushUserToken(base, latestToken);
-            if (ur.response.ok && latestMediaAuth) await pushUserMediaAuth(base);
+            const mediaLine = await pushMediaAuthWithStatus(base, ur.response.ok);
             if (ur.response.ok && latestDesignerAuth) { try { await pushUserDesignerAuth(base); } catch (e) {} }
             if (ur.response.ok && latestRefreshToken) await pushLatestRefreshTokenSilently(true);
-            alert(ur.response.ok ? tr('token_pushed') + (ur.data.token_status?.seconds_remaining) + 's' : tr('token_push_failed') + (ur.data.error?.message || ur.data.error));
-        } catch (e) { alert(tr('network_error') + e); }
+            const tokenLine = ur.response.ok ? tr('token_pushed') + (ur.data.token_status?.seconds_remaining) + 's' : tr('token_push_failed') + (ur.data.error?.message || ur.data.error);
+            alert(tokenLine + '\n' + mediaLine);
+        } catch (e) { alert(tr('network_error') + e + '\n' + mediaAuthSkippedStatus()); }
     }
 
     // Push cookies to the current /user account profile only; no global cookie is touched.
@@ -1499,7 +1531,11 @@
         if (!hasGMCookie()) { alert(tr('gm_unavailable_alert')); return; }
         // The ChatAI token only appears on the consumer host, so from an M365 tab
         // name the page to open rather than repeating "not captured yet".
-        if (!latestConsumerToken) { alert(IS_CONSUMER_SITE ? tr('no_consumer_token') : tr('consumer_needs_site')); return; }
+        if (!latestConsumerToken) {
+            if (latestToken) alert(tr('consumer_use_substrate'));
+            else alert(IS_CONSUMER_SITE ? tr('no_consumer_token') : tr('consumer_needs_site'));
+            return;
+        }
         const btn = document.getElementById('m365-push-consumer');
         // The label lives in a child span (icon + text), so write the span and
         // never btn.textContent -- that would wipe the icon out of the button.
@@ -1536,12 +1572,14 @@
         const setBtnText = (t) => { if (btnText) { btnText.textContent = t; } else { btn.textContent = t; } };
         setBtnText(tr('working'));
         btn.disabled = true;
+        let tokenResult = '';
         try {
             const ur = await pushUserToken(base, latestToken);
             const tokenLine = tr('token_push_status') + (ur.response.ok ? tr('status_success') + ' (' + (ur.data.token_status?.seconds_remaining) + tr('proxy_ready') + ')' : tr('status_failed') + ' - ' + (ur.data.error?.message || ur.data.error));
+            tokenResult = tokenLine + '\n';
             if (!ur.response.ok) {
                 const cookieLine = tr('cookie_push_status') + tr('status_skipped');
-                alert(tokenLine + '\n' + cookieLine);
+                alert(tokenLine + '\n' + cookieLine + '\n' + mediaAuthSkippedStatus());
                 return;
             }
             if (latestRefreshToken) {
@@ -1549,11 +1587,9 @@
             }
             setBtnText(tr('pushing_cookies'));
             const cookies = await getAllCookies();
-            if (!cookies.length) { alert(tokenLine + '\n' + tr('cookie_push_status') + tr('status_failed') + ' - ' + tr('no_cookies')); return; }
+            if (!cookies.length) { alert(tokenLine + '\n' + tr('cookie_push_status') + tr('status_failed') + ' - ' + tr('no_cookies') + '\n' + mediaAuthSkippedStatus()); return; }
             const cr = await pushUserCookies(base, cookies);
-            if (cr.response.ok && latestMediaAuth) {
-                try { await pushUserMediaAuth(base); } catch (e) {}
-            }
+            const mediaLine = await pushMediaAuthWithStatus(base, cr.response.ok);
             if (cr.response.ok && latestDesignerAuth) {
                 try { await pushUserDesignerAuth(base); } catch (e) {}
             }
@@ -1561,9 +1597,9 @@
             const cookieState = cr.response.ok ? (cr.data.warning ? tr('status_warning') : tr('status_success')) : tr('status_failed');
             const cookieDetail = cr.response.ok ? ' (' + cr.data.injected + '/' + cr.data.total + ')' + warning : ' - ' + (cr.data.error?.message || cr.data.error);
             const cookieLine = tr('cookie_push_status') + cookieState + cookieDetail;
-            alert(tokenLine + '\n' + cookieLine);
+            alert(tokenLine + '\n' + cookieLine + '\n' + mediaLine);
         } catch (e) {
-            alert(tr('error') + e);
+            alert(tokenResult + tr('error') + e + '\n' + mediaAuthSkippedStatus());
         } finally {
             setBtnText(tr('one_click'));
             btn.disabled = false;
@@ -1620,26 +1656,26 @@
         showPanel();
     }
 
-    // ---- Panel sections, one per product ----------------------------------
-    // The two Copilots are separate products with separate credentials, so each
-    // gets its own block with its own one-click push and its own manual drawer.
-    // The host decides which block leads: on a known product site the other
-    // product is collapsed into a drawer so the panel shows only what this page
-    // can feed. It is collapsed rather than dropped because M365's cookie push
-    // queries absolute domains (see getAllCookies) and therefore works from any
-    // tab -- dropping the block would make a working feature unreachable. Every
-    // id stays in the DOM either way, which keeps the wiring below safe.
+    // 按捕获协议排列分区；未捕获时才以站点作为初始提示。
+    // 保留所有按钮 ID 与跨站 Cookie 操作，只折叠另一分区，不移除它。
     function siteBadge(isHere, otherKey) {
-        const color = isHere ? '#22c55e' : '#475569';
-        const text = isHere ? tr('here_now') : tr(otherKey);
+        const substrate = otherKey === 'other_site_m365';
+        const captured = Boolean(substrate ? latestToken : latestConsumerToken);
+        const otherCaptured = Boolean(substrate ? latestConsumerToken : latestToken);
+        const captureSite = isHere || (substrate && IS_CONSUMER_SITE);
+        const color = captured ? '#22c55e' : '#64748b';
+        const text = captured ? tr('protocol_captured')
+            : otherCaptured ? tr('protocol_missing')
+            : captureSite ? tr('protocol_waiting') : tr(otherKey);
         return `<span style="margin-left:auto; font-weight:500; font-size:10px; color:${color};">${text}</span>`;
     }
 
     function m365Section() {
+        const sectionTitle = tr('section_m365');
         return `
                 <div style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
                     <div style="font-size:12px; color:#60f2ff; font-weight:700; margin-bottom:4px; display:flex; align-items:center;">
-                        <span style="display:flex; align-items:center;">${ic('bolt')}${tr('section_m365')}</span>
+                        <span style="display:flex; align-items:center;">${ic('bolt')}${sectionTitle}</span>
                         ${siteBadge(IS_M365_SITE, 'other_site_m365')}
                     </div>
                     <div style="font-size:10px; color:#475569; margin-bottom:8px; display:flex; align-items:center;">
@@ -1695,6 +1731,7 @@
     }
 
     function consumerSection() {
+        const substrateOnly = Boolean(latestToken) && !latestConsumerToken;
         return `
                 <div style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
                     <div style="font-size:12px; color:#10b981; font-weight:700; margin-bottom:4px; display:flex; align-items:center;">
@@ -1705,19 +1742,19 @@
                         <span>${tr('consumer_desc')}</span>
                         <span style="margin-left:auto; color:${latestConsumerToken ? '#22c55e' : '#f59e0b'};">${latestConsumerToken ? tr('consumer_captured') : '&#9888;'}</span>
                     </div>
-                    <button id="m365-push-consumer" style="width:100%; padding:10px 0; border:none;
+                    <button id="m365-push-consumer" ${substrateOnly ? 'disabled aria-disabled="true"' : ''}
+                            aria-describedby="m365-consumer-status" style="width:100%; padding:10px 0; border:none;
                             border-radius:10px; background:linear-gradient(135deg,#10b981,#0d9488); color:#fff;
-                            cursor:pointer; font-weight:700; font-size:13px; letter-spacing:0.3px;
+                            cursor:${substrateOnly ? 'not-allowed' : 'pointer'}; opacity:${substrateOnly ? '0.5' : '1'};
+                            font-weight:700; font-size:13px; letter-spacing:0.3px;
                             transition:opacity 0.2s; display:flex; align-items:center; justify-content:center; gap:6px;">
                         &#129302; <span id="m365-push-consumer-text">${tr('consumer_one_click')}</span>
                     </button>
-                    <div style="font-size:10px; color:#475569; margin-top:6px;">${latestConsumerToken ? '' : tr('consumer_not_captured')}</div>
+                    <div id="m365-consumer-status" style="font-size:10px; color:#94a3b8; margin-top:6px;">${substrateOnly ? tr('consumer_use_substrate') : latestConsumerToken ? '' : tr('consumer_not_captured')}</div>
                 </div>`;
     }
 
-    // Mode capture belongs to M365: the outgoing-frame tap is installed inside
-    // the Substrate branch only, so this section can never fill up on the
-    // consumer site. It travels with the M365 block instead of standing alone.
+    // 抓帧钩子属于 Substrate 分支，覆盖工作/个人 Substrate，不覆盖 ChatAI。
     function captureSection() {
         return `
                 <details style="border-top:1px solid #1e293b; margin:0 0 12px; padding-top:12px;">
@@ -1745,6 +1782,9 @@
     }
 
     function panelBody() {
+        if (latestToken) {
+            return m365Section() + captureSection() + otherProductDrawer(consumerSection());
+        }
         if (IS_CONSUMER_SITE) {
             return consumerSection() + otherProductDrawer(m365Section() + captureSection());
         }

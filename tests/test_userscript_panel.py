@@ -7,8 +7,8 @@ SCRIPT = (Path(__file__).resolve().parents[1] / "get_token.user.js").read_text(e
 
 
 def test_userscript_version_is_bumped_for_panel_fix():
-    assert "// @version      1.0.74" in SCRIPT
-    assert "const SCRIPT_VERSION = '1.0.74';" in SCRIPT
+    assert "// @version      1.0.78" in SCRIPT
+    assert "const SCRIPT_VERSION = '1.0.78';" in SCRIPT
 
 
 def test_userscript_exports_media_seed_url_with_cookies():
@@ -193,6 +193,11 @@ def test_userscript_captures_consumer_chat_token_from_copilot_socket():
     assert "latestConsumerToken = decodeURIComponent" in SCRIPT
 
 
+def test_substrate_socket_is_excluded_from_consumer_token_match():
+    assert "const SUBSTRATE_WS_RE = /wss:\\/\\/substrate\\.office\\.com" in SCRIPT
+    assert "const CONSUMER_WS_RE = /wss:\\/\\/(?:copilot\\.microsoft\\.com|(?:[a-z0-9-]+\\.)*copilot\\.com)" in SCRIPT
+
+
 def test_userscript_collects_consumer_copilot_cookie_domains():
     # The consumer jar must match consumer_gate._pick_cookies: copilot/bing/live
     # alongside the shared microsoft.com. Without these the server replays a jar
@@ -201,6 +206,12 @@ def test_userscript_collects_consumer_copilot_cookie_domains():
     assert "{ domain: '.copilot.microsoft.com' }" in SCRIPT
     assert "{ domain: '.bing.com' }" in SCRIPT
     assert "{ domain: '.live.com' }" in SCRIPT
+
+
+def test_userscript_rejects_missing_consumer_account_identity():
+    assert "return /^(home|local):[a-z0-9._-]+$/.test(accountId) ? accountId : '';" in SCRIPT
+    assert "home:msa_user_default" not in SCRIPT
+    assert "msa_user_" not in SCRIPT
 
 
 def test_userscript_pushes_consumer_snapshot_to_dedicated_endpoint():
@@ -230,7 +241,8 @@ def test_userscript_splits_panel_into_m365_and_consumer_sections():
 def test_userscript_shows_only_the_current_products_section():
     # Credentials can only be captured on their own host, so a known product site
     # shows just that product; the other one is collapsed into a drawer.
-    assert "const IS_CONSUMER_SITE = location.hostname === 'copilot.microsoft.com';" in SCRIPT
+    assert "const IS_CONSUMER_SITE = location.hostname === 'copilot.microsoft.com' || location.hostname === 'copilot.com' || location.hostname.endsWith('.copilot.com');" in SCRIPT
+    assert "copilot.microsoft.com or copilot.com" in SCRIPT
     assert "const M365_SITE_HOSTS = [" in SCRIPT
     assert "const IS_M365_SITE = M365_SITE_HOSTS.some(" in SCRIPT
     assert "function panelBody()" in SCRIPT
@@ -273,18 +285,14 @@ def test_userscript_wires_every_panel_button_defensively():
         assert f"document.getElementById('{button}').onclick" not in SCRIPT
 
 
-def test_userscript_badges_which_section_is_usable_here():
-    # The off-site product stays in the DOM (collapsed), and on login hosts both
-    # render, so each block still has to label whether this page can feed it.
+def test_userscript_badges_which_protocol_has_been_captured():
+    # 域名只作为未捕获前的提示；实际凭据状态由运行时矩阵测试覆盖。
     assert "function siteBadge(" in SCRIPT
-    # Each badge asks "is this host the one that can capture my token", so both
-    # test a positive predicate. Negating the sibling would be wrong: a login
-    # page is neither product, and !IS_CONSUMER_SITE would badge it "here now"
-    # for M365 even though no substrate token can ever appear there.
     assert "siteBadge(IS_M365_SITE, 'other_site_m365')" in SCRIPT
     assert "siteBadge(IS_CONSUMER_SITE, 'other_site_consumer')" in SCRIPT
     assert "siteBadge(!IS_CONSUMER_SITE" not in SCRIPT
-    assert "here_now:" in SCRIPT
+    assert "protocol_captured:" in SCRIPT
+    assert "protocol_waiting:" in SCRIPT
 
 
 def test_userscript_wrong_site_push_names_the_page_to_open():
@@ -322,11 +330,8 @@ def test_userscript_treats_non_json_body_as_failure_even_on_http_200():
     assert parse < ok_decision
 
 
-def test_userscript_labels_mode_capture_as_m365_only():
-    # The WebSocket wrapper runs for both products, but the outgoing-frame tap
-    # that feeds this section is installed inside the Substrate branch only --
-    # the consumer socket is never tapped. Labelling it "shared" told the user
-    # that capturing works on copilot.microsoft.com, which it does not.
+def test_userscript_labels_mode_capture_as_substrate_only():
+    # 抓帧覆盖工作账号和个人账号的 Substrate，而非另一路 ChatAI。
     assert "section_capture_scope:" in SCRIPT
     assert "tr('section_capture_scope')" in SCRIPT
     assert "section_shared" not in SCRIPT
