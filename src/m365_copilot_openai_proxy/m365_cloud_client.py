@@ -26,8 +26,9 @@ from __future__ import annotations
 import json
 import threading
 import time
+from collections.abc import Callable
 
-from .account_store import AccountStore
+from .account_store import Account, AccountStore
 from .refresh_via_rt import (
     _post_token,
     _stored_binding,
@@ -73,6 +74,10 @@ class CloudSessionError(RuntimeError):
     """
 
 
+class CloudSessionIdentityChanged(CloudSessionError):
+    """A request-owned cleanup no longer matches the account configuration."""
+
+
 def token_cache_stats() -> dict:
     with _TOKEN_CACHE_LOCK:
         looked_up = _TOKEN_CACHE_HITS + _TOKEN_CACHE_MISSES
@@ -106,9 +111,11 @@ def _readable_claims(token: str) -> dict:
     return claims if isinstance(claims, dict) else {}
 
 
-async def _cloud_token(accounts: AccountStore, account_id: str) -> str:
-    """Mint (or reuse) an m365.cloud.microsoft access token for one account."""
-    account = accounts.get(account_id)
+async def _cloud_token(
+    accounts: AccountStore, account_id: str, *, snapshot: Account | None = None,
+) -> str:
+    """Mint an account token, optionally using only a request-owned snapshot."""
+    account = snapshot if snapshot is not None else accounts.get(account_id)
     if account is None:
         raise CloudSessionError("账户不存在")
     if getattr(account, "provider", "m365") != "m365":
@@ -125,6 +132,8 @@ async def _cloud_token(accounts: AccountStore, account_id: str) -> str:
     # Microsoft user can never keep listing/deleting the previous user's
     # conversations from a still-unexpired cached token.
     cache_key = f"{account_id}:{object_id}"
+    if snapshot is not None:
+        cache_key = f"probe:{account_id}:{snapshot.protocol_epoch}:{binding}"
     cached = _cached_token(cache_key)
     if cached:
         return cached
@@ -168,8 +177,10 @@ async def _cloud_token(accounts: AccountStore, account_id: str) -> str:
     # keeps working, but persisting the new one is what keeps a native client's
     # sliding window sliding. Same CAS as the media hops: None binding args
     # preserve the verified client/authority/subject.
+    # Request-owned probes deliberately do not persist rotation: their frozen
+    # credential must never write over a replacement or a switched account.
     rotated = payload.get("refresh_token")
-    if isinstance(rotated, str) and rotated and rotated != rt:
+    if snapshot is None and isinstance(rotated, str) and rotated and rotated != rt:
         accounts.set_refresh_token(account_id, rotated, expected_refresh_token=rt)
 
     # expires_in describes the access token; the claims exp may be the id_token's.
@@ -263,14 +274,27 @@ async def list_conversations(accounts: AccountStore, account_id: str) -> list[di
     return sorted(chats, key=chat_updated_at, reverse=True)
 
 
-async def delete_conversation(accounts: AccountStore, account_id: str, conversation_id: str) -> None:
-    token = await _cloud_token(accounts, account_id)
-    await _cloud_action(
+async def delete_conversation(
+    accounts: AccountStore, account_id: str, conversation_id: str, *,
+    snapshot: Account | None = None,
+    is_current: Callable[[], bool] | None = None,
+) -> None:
+    # Probe deletion never reloads a newer credential. Recheck after the awaited
+    # token exchange as well as before it; an in-flight delete retains this old
+    # identity even if the account changes after HTTP dispatch.
+    if is_current is not None and not is_current():
+        raise CloudSessionIdentityChanged("账户身份或协议配置已变更")
+    token = await _cloud_token(accounts, account_id, snapshot=snapshot)
+    if is_current is not None and not is_current():
+        raise CloudSessionIdentityChanged("账户身份或协议配置已变更")
+    result = await _cloud_action(
         token,
         "DeleteConversation",
         state={"conversationPageHistoryList": {"chats": []}},
         conversationId=conversation_id,
     )
+    if result.get("error") or result.get("errors") or result.get("success") is False:
+        raise CloudSessionError("DeleteConversation 返回失败")
 
 
 async def cleanup_conversations(

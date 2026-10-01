@@ -285,16 +285,27 @@ _ADMIN_SHELL_HTML = """<div class="orb" aria-hidden="true"></div>
 <span style="font-size:.7rem;color:var(--faint);margin-left:auto" data-i18n="click_expand">点击展开</span>
 </summary>
 <div style="margin-top:20px">
-<div style="font-size:.75rem;color:var(--faint);line-height:1.5;margin-bottom:.75rem" data-i18n="model_test_hint">用所选账号真发一轮请求，判断这个模式对该账号是否可用（可用/空回复/被拒/限额/故障）。走的是 /v1 同一条链路，因此结果与真实调用一致；每次测试会新建一个上游会话，可在「会话管理」里删掉。</div>
+<div style="font-size:.75rem;color:var(--faint);line-height:1.5;margin-bottom:.75rem" data-i18n="model_test_hint">用所选账号发送真实请求，判断模式是否可用。与 /v1 使用同一链路；可勾选部分模型按列表顺序逐一测试。每次结束后仅尝试删除本次新建的临时会话，清理状态单独显示。</div>
+<fieldset id="model-test-controls" style="border:0;padding:0;margin:0;min-width:0">
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem 1.1rem;align-items:end">
 <label style="font-size:.95rem;font-weight:800;color:var(--strong);display:flex;flex-direction:column;gap:.6rem"><span data-i18n="col_account">账号</span><select id="model-test-account" onchange="renderModelTest()" style="width:100%;box-sizing:border-box;padding:11px 36px 11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></select></label>
 <label style="font-size:.95rem;font-weight:800;color:var(--strong);display:flex;flex-direction:column;gap:.6rem"><span data-i18n="mt_col_model">模型</span><select id="model-test-model" style="width:100%;box-sizing:border-box;padding:11px 36px 11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700"></select></label>
 <label style="font-size:.95rem;font-weight:800;color:var(--strong);display:flex;flex-direction:column;gap:.6rem"><span data-i18n="mt_prompt">测试提问</span><input id="model-test-prompt" style="width:100%;box-sizing:border-box;padding:11px 13px;background:var(--inner);border:1px solid var(--inner-border);border-radius:10px;color:var(--strong);font-size:.95rem;font-weight:700" placeholder=""></label>
 </div>
+<div style="display:flex;align-items:center;gap:.5rem;margin-top:1rem;flex-wrap:wrap">
+<span id="model-test-selection-label" data-i18n="mt_selection" style="font-size:.85rem;font-weight:700;color:var(--strong)">勾选模型</span>
+<button type="button" id="model-test-select-all" onclick="selectModelTestModels(true)" style="font-size:.75rem;padding:5px 10px" data-i18n="mt_select_all">全选</button>
+<button type="button" id="model-test-clear" onclick="selectModelTestModels(false)" style="font-size:.75rem;padding:5px 10px" data-i18n="mt_clear">清空</button>
+<span id="model-test-selection-count" aria-live="polite" style="font-size:.75rem;color:var(--faint)"></span>
+</div>
+<div id="model-test-models" role="group" aria-labelledby="model-test-selection-label" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:.5rem;margin-top:.6rem"></div>
 <div style="display:flex;align-items:center;gap:.5rem;margin-top:20px;flex-wrap:wrap">
-<button id="model-test-run" onclick="runModelTest(false)" data-i18n="mt_run">测试所选模型</button>
+<button id="model-test-run" onclick="runModelTest(false)" data-i18n="mt_run">测试单个模型</button>
+<button id="model-test-run-selected" onclick="runModelTest('selected')" data-i18n="mt_run_selected" disabled>测试勾选模型</button>
 <button id="model-test-run-all" onclick="runModelTest(true)" style="background:linear-gradient(135deg,#64748b,#475569)" data-i18n="mt_run_all">测试全部模型</button>
 </div>
+</fieldset>
+<div id="model-test-progress" role="status" style="font-size:.75rem;color:var(--faint);margin-top:.6rem"></div>
 <div id="model-test-result" style="margin-top:.6rem;padding:20px;border-radius:12px;background:var(--inner);border:1px solid var(--inner-border);max-height:400px;overflow-y:auto;font-size:.8rem">
 <span style="color:var(--faint)" data-i18n="mt_none">尚未测试</span>
 </div>

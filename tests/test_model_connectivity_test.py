@@ -163,34 +163,171 @@ def test_probe_requires_admin(env):
     assert not _FakeClient.seen
 
 
-def test_admin_page_wires_the_probe_into_the_debug_view():
-    from m365_copilot_openai_proxy.template_admin import _ADMIN_HTML
+def _run_model_test_ui(tmp_path, steps):
+    import shutil
+    import subprocess
+
+    from m365_copilot_openai_proxy.template_admin_i18n import _ADMIN_I18N_JS
     from m365_copilot_openai_proxy.template_admin_modeltest import _ADMIN_MODELTEST_JS
 
-    assert _ADMIN_MODELTEST_JS in _ADMIN_HTML
-    for element_id in ("model-test-account", "model-test-model", "model-test-prompt", "model-test-result"):
-        assert f'id="{element_id}"' in _ADMIN_HTML
-    # Opening the view must populate the selectors, and a language switch must
-    # re-render from cache instead of firing more upstream turns.
-    debug_loader = _ADMIN_HTML.split("if(view==='debug'){", 1)[1].split("}", 1)[0]
-    for loader in (
-        "loadProtocolProfileAccounts();",
-        "loadCaptureToggle();",
-        "loadRuntimeSettings();",
-        "loadModelTest();",
-    ):
-        assert loader in debug_loader
-    assert "if(typeof renderModelTest==='function')renderModelTest()" in _ADMIN_HTML
-    # Both languages label every verdict the endpoint can return.
-    for verdict in ("ok", "empty", "refused", "throttled", "error", "running"):
-        assert _ADMIN_HTML.count(f"mt_v_{verdict}:'") == 2
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is required for model-test UI behavior tests")
+    harness = r"""
+const assert=require('assert');
+const decode=s=>s.replace(/&quot;/g,'"').replace(/&gt;/g,'>').replace(/&lt;/g,'<').replace(/&amp;/g,'&');
+class Element {
+  constructor(id){this.id=id;this.value='';this.disabled=false;this.textContent='';this.html='';this.inputs=[]}
+  set innerHTML(html){
+    this.html=html;
+    if(this.id==='model-test-account'||this.id==='model-test-model'){
+      this.options=Array.from(html.matchAll(/<option value="([^"]*)"/g),m=>decode(m[1]));
+      this.value=this.options[0]||'';
+    }
+    if(this.id==='model-test-models')this.inputs=Array.from(html.matchAll(/<input\b([^>]*)>/g),m=>{
+      const a=m[1],flags=a.replace(/"[^"]*"|'[^']*'/g,'');return {value:decode((a.match(/value="([^"]*)"/)||[])[1]||''),checked:/\bchecked\b/.test(flags),disabled:/\bdisabled\b/.test(flags)};
+    });
+  }
+  get innerHTML(){return this.html}
+}
+const ids=['controls','account','model','prompt','models','selection-count','progress','run','run-all','run-selected','select-all','clear','result'];
+const elements=Object.fromEntries(ids.map(id=>['model-test-'+id,new Element('model-test-'+id)]));
+const el=id=>elements['model-test-'+id];
+const document={getElementById:id=>elements[id]||null};
+let lang='en';
+const t=k=>i18n[lang][k]??k;
+function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+let __accounts=[{id:'first',name:'First',provider:'consumer'},{id:'second',name:'Second',provider:'consumer'}];
+let __runtimeSettings={consumer_mode_options:[{model:'alpha',mode:'one'},{model:'beta',mode:'two'},{model:'gamma',mode:'three'}]};
+const acctLabel=a=>a.name,refreshGlassSelect=()=>{};
+const alerts=[];
+const adminAlert=async s=>alerts.push(s);
+let logins=0;
+const showInlineLogin=()=>logins++;
+const calls=[],pending=[];
+const fetch=(url,init)=>new Promise(resolve=>{calls.push(JSON.parse(init.body));pending.push(resolve)});
+const settle=async(body={verdict:'ok',reply:'pong',cleanup:{status:'deleted'}},status=200)=>{
+  assert.ok(pending.length,'a probe must be awaiting its response');
+  pending.shift()({status,ok:status===200,json:async()=>body});
+  await new Promise(resolve=>setImmediate(resolve));
+};
+const selected=()=>el('models').inputs.filter(x=>x.checked).map(x=>x.value);
+const check=(id,value)=>{const input=el('models').inputs.find(x=>x.value===id);assert.ok(input);input.checked=value;toggleModelTestSelection(id,value)};
+"""
+    script = tmp_path / "model-test-ui.js"
+    script.write_text(
+        _ADMIN_I18N_JS + harness + _ADMIN_MODELTEST_JS
+        + "\n(async()=>{renderModelTest();" + steps
+        + "})().then(()=>console.log('model-test-ui completed')).catch(e=>{console.error(e);process.exit(1)});",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [node, str(script)], capture_output=True, text=True, encoding="utf-8", errors="replace"
+    )
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert "model-test-ui completed" in result.stdout, "UI scenario did not finish"
 
 
-def test_probe_ui_sends_one_model_at_a_time():
-    """Concurrent probes on one account look like a burst and can trip the quota."""
-    from m365_copilot_openai_proxy.template_admin_modeltest import _ADMIN_MODELTEST_JS
+def test_probe_ui_selected_batch_is_sequential_and_frozen_across_rerenders(tmp_path):
+    _run_model_test_ui(tmp_path, """
+      check('gamma',true);check('beta',true);check('alpha',true);check('beta',false);
+      el('prompt').value='original prompt';
+      const run=runModelTest('selected');
+      assert.deepStrictEqual(calls,[{account_id:'first',model:'alpha',prompt:'original prompt'}]);
+      assert.strictEqual(el('controls').disabled,true);
+      assert.ok(el('models').inputs.every(x=>x.disabled));
+      await runModelTest(true);
+      assert.strictEqual(calls.length,1,'repeat clicks must not start another run');
+      __accounts[0].id='changed';
+      __runtimeSettings.consumer_mode_options=[{model:'replacement',mode:'four'}];
+      el('account').value='second';el('prompt').value='changed prompt';
+      lang='zh';renderModelTest();
+      assert.strictEqual(el('account').value,'first');
+      assert.strictEqual(el('prompt').value,'original prompt');
+      assert.deepStrictEqual(selected(),['alpha','gamma']);
+      assert.strictEqual(calls.length,1,'language render must not send probes');
+      await settle();
+      assert.deepStrictEqual(calls,[
+        {account_id:'first',model:'alpha',prompt:'original prompt'},
+        {account_id:'first',model:'gamma',prompt:'original prompt'}
+      ]);
+      const detached=el('run-selected');
+      elements['model-test-run-selected']=new Element('model-test-run-selected');
+      elements['model-test-controls']=new Element('model-test-controls');
+      renderModelTest();
+      assert.strictEqual(el('run-selected').disabled,true);
+      await settle();await run;
+      assert.strictEqual(el('controls').disabled,false);
+      assert.strictEqual(el('run-all').disabled,false);
+      assert.strictEqual(detached.disabled,true,'completion must not touch an obsolete button');
+      assert.ok(el('progress').textContent.includes('2 / 2'));
+    """)
 
-    run = _ADMIN_MODELTEST_JS.split("async function runModelTest(all)", 1)[1]
-    assert "for(const model of targets){" in run
-    assert "await _mtProbe(" in run
-    assert "Promise.all" not in run
+
+def test_probe_ui_selection_survives_language_but_not_account_or_catalog_removal(tmp_path):
+    _run_model_test_ui(tmp_path, """
+      check('alpha',true);check('gamma',true);
+      lang='zh';renderModelTest();
+      assert.deepStrictEqual(selected(),['alpha','gamma']);
+      __runtimeSettings.consumer_mode_options.splice(0,1);renderModelTest();
+      assert.deepStrictEqual(selected(),['gamma']);
+      __runtimeSettings.consumer_mode_options.push({model:'alpha',mode:'one'});renderModelTest();
+      assert.deepStrictEqual(selected(),['gamma'],'removed selections must not resurrect');
+      el('account').value='second';renderModelTest();
+      assert.deepStrictEqual(selected(),[]);
+      selectModelTestModels(true);
+      assert.deepStrictEqual(selected(),['beta','gamma','alpha']);
+      selectModelTestModels(false);
+      await runModelTest('selected');
+      assert.deepStrictEqual(calls,[],'an empty selection must not probe');
+      assert.strictEqual(el('run-selected').disabled,true);
+    """)
+
+
+def test_probe_ui_single_and_all_keep_their_targets_and_401_stops_batch(tmp_path):
+    _run_model_test_ui(tmp_path, """
+      el('model').value='beta';
+      const single=runModelTest(false);
+      assert.deepStrictEqual(calls.map(c=>c.model),['beta']);
+      await settle();await single;
+      const all=runModelTest(true);
+      assert.deepStrictEqual(calls.map(c=>c.model),['beta','alpha']);
+      await settle({},401);await all;
+      assert.strictEqual(logins,1);
+      assert.deepStrictEqual(calls.map(c=>c.model),['beta','alpha'],'401 must terminate the queue');
+      assert.strictEqual(el('controls').disabled,false);
+      assert.strictEqual(el('run-all').disabled,false);
+      assert.ok(el('result').innerHTML.includes(t('mt_auth_required')));
+      const retry=runModelTest(true);
+      await settle();await settle();await settle();await retry;
+      assert.deepStrictEqual(calls.slice(2).map(c=>c.model),['alpha','beta','gamma']);
+    """)
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+def test_probe_ui_cleanup_is_separate_and_escapes_server_details(tmp_path, language):
+    _run_model_test_ui(tmp_path, "lang=" + repr(language) + ";" + """
+      check('alpha',true);
+      const run=runModelTest('selected');
+      await settle({verdict:'ok',reply:'<b>reply</b>',cleanup:{status:'failed',message:'<img src=x onerror="alert(1)">'}});
+      await run;
+      assert.strictEqual(el('run-selected').disabled,false);
+      const html=el('result').innerHTML;
+      assert.ok(html.includes(t('mt_v_ok')));
+      assert.ok(html.includes(t('mt_cleanup_failed')));
+      assert.ok(html.includes('&lt;b&gt;reply&lt;/b&gt;'));
+      assert.ok(html.includes('&lt;img src=x onerror=&quot;alert(1)&quot;&gt;'));
+      assert.ok(!html.includes('<img'));
+      renderModelTest();assert.deepStrictEqual(selected(),['alpha']);
+      const legacy=runModelTest(false);
+      await settle({verdict:'empty',reply:''});await legacy;
+      assert.ok(el('result').innerHTML.includes(t('mt_v_empty')));
+      assert.ok(el('result').innerHTML.includes(t('mt_cleanup_unknown')));
+      const failure=runModelTest(false);
+      await settle({error:{message:'<upstream error>'},cleanup:{status:'unsupported',message:'delete_unsupported'}},500);
+      await failure;
+      assert.ok(el('result').innerHTML.includes(t('mt_v_error')));
+      assert.ok(el('result').innerHTML.includes('&lt;upstream error&gt;'));
+      assert.ok(el('result').innerHTML.includes(t('mt_cleanup_unsupported')));
+      assert.ok(el('result').innerHTML.includes(t('mt_cleanup_delete_unsupported')));
+    """)

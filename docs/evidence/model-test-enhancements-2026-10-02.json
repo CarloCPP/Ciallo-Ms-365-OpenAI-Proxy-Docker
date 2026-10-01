@@ -1,0 +1,245 @@
+{
+  "regression": {
+    "passed": 2677,
+    "skipped": 3
+  },
+  "deployment": {
+    "backup": "/tmp/modeltest-1790891514.tar.gz",
+    "hashes": {
+      "src/m365_copilot_openai_proxy/probe_conversations.py": "dfaee1079e83a4ed86415b57d8fa63d2168c53a47da906f4a3333232505aba5f",
+      "src/m365_copilot_openai_proxy/routes_admin_modeltest.py": "962e6e235535a91a1ce9427ff55298526bfea3f49deff69ecb4a040ef51b3cda",
+      "src/m365_copilot_openai_proxy/m365_cloud_client.py": "f6d271f26eb77eaa0ca1527a52d816d2c6a9445d582ddd4466dd64f7435986ec",
+      "src/m365_copilot_openai_proxy/substrate_client.py": "2b193616a6aeb1462c9966520fef7845750c77221b8b07b39f6131b58af828e7",
+      "src/m365_copilot_openai_proxy/consumer_client.py": "610459f788902b67ea1fc4a9ec6fc6af376c5a2c28b87f8d5fbcd856a29a2a4e",
+      "src/m365_copilot_openai_proxy/template_admin_modeltest.py": "68d0797393b0b539d0f50140065915e50dd21b1c657b69c5c7bb33c4af759579",
+      "src/m365_copilot_openai_proxy/template_admin_shell.py": "eaf92b89ec10cf081d85fe45d3ebb5dc4821ea4bb6f013ca1f552a28bfc60f8e",
+      "src/m365_copilot_openai_proxy/template_admin_i18n.py": "6da4015f4e6abff8fbfa77eebf6171e3eb4b3f8c654e2b50207c2102d082903e"
+    }
+  },
+  "cloud_deletion_smoke": {
+    "http": 200,
+    "verdict": "ok",
+    "cleanup": {
+      "status": "deleted"
+    },
+    "marker_observed": true,
+    "before_cloud": 18,
+    "after_cloud": 18,
+    "new_cloud_ids": [],
+    "removed_existing": 0
+  },
+  "ui_sequence": {
+    "events": [
+      {
+        "event": "request",
+        "model": "grok-auto",
+        "time": 1790892556454
+      },
+      {
+        "event": "response",
+        "status": 200,
+        "time": 1790892564377
+      },
+      {
+        "event": "request",
+        "model": "muse-spark",
+        "time": 1790892564537
+      },
+      {
+        "event": "response",
+        "status": 200,
+        "time": 1790892572178
+      }
+    ],
+    "maxActive": 1
+  },
+  "ui_enterprise_results": [
+    {
+      "account_id": "acct_2eed3918214f",
+      "account_name": "test1",
+      "provider": "m365",
+      "model": "grok-auto",
+      "prompt": "Reply only UI-SELECT-CLEAN-OK",
+      "cleanup": {
+        "status": "deleted"
+      },
+      "upstream_selector": "Grok_Auto",
+      "verdict": "ok",
+      "error": "",
+      "latency_ms": 5689,
+      "reply": "UI-SELECT-CLEAN-OK",
+      "reply_len": 18
+    },
+    {
+      "account_id": "acct_2eed3918214f",
+      "account_name": "test1",
+      "provider": "m365",
+      "model": "muse-spark",
+      "prompt": "Reply only UI-SELECT-CLEAN-OK",
+      "cleanup": {
+        "status": "deleted"
+      },
+      "upstream_selector": "Muse_Spark",
+      "verdict": "ok",
+      "error": "",
+      "latency_ms": 6192,
+      "reply": "UI-SELECT-CLEAN-OK",
+      "reply_len": 18
+    }
+  ],
+  "personal_jwe_results": [
+    {
+      "account_id": "acct_b1172aff4361",
+      "account_name": "Soon Lin",
+      "provider": "m365",
+      "model": "grok-auto",
+      "prompt": "Reply only UI-SELECT-CLEAN-OK",
+      "cleanup": {
+        "status": "unsupported",
+        "message": "delete_unsupported"
+      },
+      "upstream_selector": "Grok_Auto",
+      "verdict": "ok",
+      "error": "",
+      "latency_ms": 5578,
+      "reply": "UI-SELECT-CLEAN-OK",
+      "reply_len": 18
+    },
+    {
+      "account_id": "acct_b1172aff4361",
+      "account_name": "Soon Lin",
+      "provider": "m365",
+      "model": "muse-spark",
+      "prompt": "Reply only UI-SELECT-CLEAN-OK",
+      "cleanup": {
+        "status": "unsupported",
+        "message": "delete_unsupported"
+      },
+      "upstream_selector": "Muse_Spark",
+      "verdict": "ok",
+      "error": "",
+      "latency_ms": 5987,
+      "reply": "UI-SELECT-CLEAN-OK",
+      "reply_len": 18
+    }
+  ],
+  "matrix": {
+    "rows": [
+      {
+        "label": "1a chat text (sync)",
+        "passed": true,
+        "detail": "http=200 text='OK'"
+      },
+      {
+        "label": "1b chat text (stream)",
+        "passed": true,
+        "detail": "http=200 text='4 5 6 7 8 9 10 😊'"
+      },
+      {
+        "label": "1c stream refuses storage",
+        "passed": true,
+        "detail": "cache-control='no-store'"
+      },
+      {
+        "label": "1d chat tool round",
+        "passed": true,
+        "detail": "http=200 name=get_weather"
+      },
+      {
+        "label": "1e chat tool continuation",
+        "passed": false,
+        "detail": "http=200 text=\"I don't have a task to perform yet. Please tell me what you'\"",
+        "reason": "HTTP succeeded but answer did not consume the supplied tool result."
+      },
+      {
+        "label": "router mode applied",
+        "passed": true,
+        "detail": "http=200 applied=True"
+      },
+      {
+        "label": "router tool round",
+        "passed": true,
+        "detail": "http=200 hdr=router calls=1"
+      },
+      {
+        "label": "studio mode applied",
+        "passed": false,
+        "detail": "http=200 applied=True",
+        "blocker": "No ready Studio agent; successful fallback is Router, not Studio."
+      },
+      {
+        "label": "studio tool round",
+        "passed": false,
+        "detail": "http=200 hdr=router calls=1",
+        "blocker": "No ready Studio agent; successful fallback is Router, not Studio."
+      },
+      {
+        "label": "4a messages text",
+        "passed": true,
+        "detail": "http=200 stop=end_turn"
+      },
+      {
+        "label": "4b messages tool_use",
+        "passed": true,
+        "detail": "http=200 input={'city': 'Paris'}"
+      },
+      {
+        "label": "4c messages tool_result continuation",
+        "passed": false,
+        "detail": "http=200 text=\"I'm ready to help. Please provide your request.\"",
+        "reason": "HTTP succeeded but answer did not consume the supplied tool result."
+      },
+      {
+        "label": "5a responses text",
+        "passed": true,
+        "detail": "http=200 status=completed"
+      },
+      {
+        "label": "5b responses function tool",
+        "passed": true,
+        "detail": "http=200 name=get_weather args={\"city\": \"Paris\"}"
+      },
+      {
+        "label": "5c responses tool continuation",
+        "passed": true,
+        "detail": "http=200 text='The current weather in Paris is **18°C and clear**.'"
+      },
+      {
+        "label": "6 Personal Substrate JWE",
+        "passed": true,
+        "status": 200
+      }
+    ],
+    "full_acceptance": false
+  },
+  "strict_tool_loops": [
+    {
+      "api": "chat/completions",
+      "first_http": 200,
+      "passed": true,
+      "final_http": 200
+    },
+    {
+      "api": "messages",
+      "first_http": 200,
+      "passed": true,
+      "final_http": 200
+    },
+    {
+      "api": "responses",
+      "first_http": 200,
+      "passed": true,
+      "final_http": 200
+    }
+  ],
+  "control_cleanup": {
+    "matching_control_count": 0,
+    "removed": false
+  },
+  "issue_comment": "https://github.com/MurasameCyan/Ciallo-Ms-365-OpenAI-Proxy-Docker/issues/9#issuecomment-5938562894",
+  "limitations": [
+    "Personal Substrate JWE and Consumer lack a verified cloud deletion grant; cleanup reports unsupported.",
+    "Studio has no ready agent; fallback not counted as Studio pass.",
+    "Legacy weather-loop harness produced two ungrounded continuations; fresh file-marker loops all passed."
+  ]
+}

@@ -33,6 +33,7 @@ from curl_cffi.requests import (
 from curl_cffi.requests.exceptions import RequestException
 from curl_cffi.requests.websockets import WsCloseCode
 
+from .probe_conversations import probe_conversations
 from .sse_stream import closing_stream
 
 BASE_URL = "https://copilot.microsoft.com"
@@ -597,6 +598,9 @@ class ConsumerCopilotClient:
                 headers = (
                     {"authorization": f"Bearer {self._token}"} if self._token else {}
                 )
+                probe = probe_conversations.get()
+                if probe is not None:
+                    probe.consumer_started()
                 try:
                     response = await session.post(CONVERSATION_URL, headers=headers)
                 except RequestException as exc:
@@ -616,6 +620,8 @@ class ConsumerCopilotClient:
                     raise ConsumerCopilotError(
                         "Copilot returned a conversation with no id."
                     )
+                if probe is not None and isinstance(conversation_id, str):
+                    probe.consumer_created(conversation_id)
 
             image_parts = await self._upload_images(session, images)
             # Image parts lead, as in the browser's own frame. An EMPTY text part

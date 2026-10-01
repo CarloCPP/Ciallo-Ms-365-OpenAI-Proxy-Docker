@@ -15,9 +15,9 @@ differently:
 
 The probe rides the same client factory as /v1/chat/completions -- same per-account
 egress, same provider dispatch, same tone/mode resolution -- because a test that
-takes a different path can pass while real traffic fails. It runs with no session,
-so it starts a fresh upstream conversation and never disturbs a live one; that does
-leave one short conversation behind, which the session-management view can delete.
+takes a different path can pass while real traffic fails. A request-local tracker
+records only conversations this probe demonstrably created, including retries.
+Cleanup is bounded, identity-bound, and never changes the probe verdict.
 """
 from __future__ import annotations
 
@@ -28,20 +28,24 @@ from types import SimpleNamespace
 
 from fastapi import FastAPI, HTTPException, Request
 
-from .consumer_client import AccountThrottled, ConsumerCopilotError
+from .consumer_client import AccountThrottled
+from .m365_cloud_client import CloudSessionIdentityChanged, delete_conversation
+from .probe_conversations import ProbeConversations, probe_conversations
+from .refresh_via_rt import _stored_binding
 from .response_helpers import _json_err
 from .routes_api_common import apply_request_model
 from .substrate_client import (
     _EMPTY_TURN_MARKER,
     _M365_REFUSAL_TEXTS,
     _REFUSED_TURN_MARKER,
-    SubstrateCopilotError,
 )
+from .token_store import decode_jwt_payload
 
 # Short enough that the answer is unambiguous, long enough that a mode which only
 # emits a canned deflection still produces text we can show the operator.
 _PROBE_PROMPT = "Reply with one word: pong"
 _PROBE_TIMEOUT_SECONDS = 180.0
+_CLEANUP_TIMEOUT_SECONDS = 20.0
 _PREVIEW_CHARS = 600
 
 
@@ -70,6 +74,87 @@ def _is_throttled(exc: BaseException) -> bool:
     )
 
 
+def _probe_identity(account) -> tuple:
+    token = getattr(account, "token", "") or ""
+    try:
+        claims = decode_jwt_payload(token) if token.count(".") == 2 else {}
+    except Exception:
+        claims = {}
+    subject = (claims.get("tid"), claims.get("oid"))
+    if not all(subject):
+        subject = token  # Opaque JWE cannot prove that a replacement is the same user.
+    return (
+        account.provider, account.protocol_epoch, subject,
+        getattr(account, "substrate_account_id", ""),
+        getattr(account, "consumer_account_id", ""), _stored_binding(account),
+    )
+
+
+def _probe_profile(app, account):
+    store = getattr(app.state, "protocol_profile_store", None)
+    if store is None or account.provider != "m365":
+        return None
+    try:
+        claims = decode_jwt_payload(account.token) if account.token.count(".") == 2 else {}
+    except Exception:
+        claims = {}
+    return store.active(account_id=account.id, tenant_id=str(claims.get("tid") or ""))
+
+
+async def _cleanup_probe(app, account, profile, probe: ProbeConversations) -> dict:
+    if not probe.attempted:
+        return {"status": "not_created"}
+
+    def is_current() -> bool:
+        current = app.state.account_store.get_request_snapshot(account.id)
+        return (
+            current is not None
+            and _probe_identity(current) == _probe_identity(account)
+            and _probe_profile(app, current) == profile
+        )
+
+    if not is_current():
+        return {"status": "skipped", "message": "identity_changed"}
+    if not probe.confirmed:
+        return {"status": "skipped", "message": "creation_unconfirmed"}
+    # Cloud management requires a verified AAD refresh grant. Personal Substrate
+    # JWE has no readable AAD subject; Consumer's create credential is not a
+    # verified delete grant. Neither may borrow another protocol's credentials.
+    if (
+        account.provider != "m365" or account.token.count(".") != 2
+        or not account.refresh_token or _stored_binding(account) is None
+    ):
+        return {"status": "unsupported", "message": "delete_unsupported"}
+
+    async def delete_owned() -> bool:
+        failed = False
+        for conversation_id in probe.confirmed:
+            try:
+                await delete_conversation(
+                    app.state.account_store, account.id, conversation_id,
+                    snapshot=account, is_current=is_current,
+                )
+            except (CloudSessionIdentityChanged, asyncio.TimeoutError):
+                raise
+            except Exception:
+                failed = True
+        return failed
+
+    try:
+        failed = await asyncio.wait_for(delete_owned(), timeout=_CLEANUP_TIMEOUT_SECONDS)
+    except CloudSessionIdentityChanged:
+        return {"status": "skipped", "message": "identity_changed"}
+    except asyncio.TimeoutError:
+        return {"status": "failed", "message": "delete_timeout"}
+    except Exception:  # Cleanup is separate from the original probe result.
+        return {"status": "failed", "message": "delete_failed"}
+    if failed:
+        return {"status": "failed", "message": "delete_failed"}
+    if probe.candidates - probe.confirmed or probe.uncertain_create:
+        return {"status": "skipped", "message": "creation_unconfirmed"}
+    return {"status": "deleted"}
+
+
 def register_admin_model_test_routes(
     app: FastAPI,
     require_admin: Callable[[Request], object | None],
@@ -90,7 +175,7 @@ def register_admin_model_test_routes(
         prompt = str(body.get("prompt") or "").strip() or _PROBE_PROMPT
         if not account_id or not model:
             return _json_err(400, "account_id and model are required")
-        account = app.state.account_store.get(account_id)
+        account = app.state.account_store.get_request_snapshot(account_id)
         if account is None:
             return _json_err(404, "account not found")
 
@@ -107,6 +192,7 @@ def register_admin_model_test_routes(
             "provider": getattr(account, "provider", "m365"),
             "model": model,
             "prompt": prompt,
+            "cleanup": {"status": "not_created"},
         }
         try:
             client, resolved, is_consumer = apply_request_model(
@@ -118,6 +204,9 @@ def register_admin_model_test_routes(
             result.update(verdict="error", error=str(exc.detail), latency_ms=0, reply="")
             return result
         result["upstream_selector"] = resolved
+        profile = _probe_profile(app, account)
+        probe = ProbeConversations()
+        scope = probe_conversations.set(probe)
 
         started = time.monotonic()
         try:
@@ -132,7 +221,7 @@ def register_admin_model_test_routes(
                 reply="",
             )
             return result
-        except (SubstrateCopilotError, ConsumerCopilotError, HTTPException, OSError) as exc:
+        except Exception as exc:  # Every client failure still reaches cleanup.
             detail = str(getattr(exc, "detail", "") or exc)
             result.update(
                 verdict=classify_probe("", detail, throttled=_is_throttled(exc)),
@@ -141,11 +230,23 @@ def register_admin_model_test_routes(
                 reply="",
             )
             return result
-        result.update(
-            verdict=classify_probe(reply),
-            error="",
-            latency_ms=int((time.monotonic() - started) * 1000),
-            reply=reply[:_PREVIEW_CHARS],
-            reply_len=len(reply),
-        )
+        else:
+            result.update(
+                verdict=classify_probe(reply),
+                error="",
+                latency_ms=int((time.monotonic() - started) * 1000),
+                reply=reply[:_PREVIEW_CHARS],
+                reply_len=len(reply),
+            )
+        finally:
+            probe_conversations.reset(scope)
+            # Cancellation of chat also lands here. A separate shielded task
+            # keeps disconnect cancellation from interrupting bounded cleanup;
+            # preserve cancellation rather than manufacturing a probe verdict.
+            cleanup_task = asyncio.create_task(_cleanup_probe(app, account, profile, probe))
+            try:
+                result["cleanup"] = await asyncio.shield(cleanup_task)
+            except asyncio.CancelledError:
+                await asyncio.shield(cleanup_task)
+                raise
         return result

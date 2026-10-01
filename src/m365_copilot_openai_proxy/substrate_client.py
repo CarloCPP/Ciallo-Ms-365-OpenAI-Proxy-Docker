@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import websockets
 from python_socks import ProxyError as SocksProxyError
 
+from .probe_conversations import probe_conversations
 from .reasoning import ReasoningDelta, ReasoningSnapshots, StreamChunk
 from .session_store import PersistentSession
 from .sse_stream import closing_stream
@@ -695,6 +696,7 @@ class SubstrateCopilotClient:
         annotations: list[dict] | None = None,
     ) -> AsyncIterator[StreamChunk]:
         req_id = str(uuid.uuid4())
+        probe = probe_conversations.get() if is_start_of_session else None
         url = self._ws_url(conv_id, session_id, req_id)
         origin = "https://copilot.com" if getattr(self, "_is_consumer", False) else "https://m365.cloud.microsoft"
         try:
@@ -709,6 +711,8 @@ class SubstrateCopilotClient:
                 idle_timeout = getattr(self, "_idle_timeout", None) or _WS_IDLE_TIMEOUT
                 await ws.send(json.dumps({"protocol": "json", "version": 1}) + SIGNALR_SEP)
                 await asyncio.wait_for(ws.recv(), timeout=idle_timeout)
+                if probe is not None:
+                    probe.substrate_started(conv_id)
                 await ws.send(self._chat_invoke(text, conv_id, session_id, req_id, is_start_of_session, annotations))
                 fallback_text = ""
                 streamed_text = ""
@@ -746,6 +750,8 @@ class SubstrateCopilotClient:
                         except json.JSONDecodeError:
                             continue
                         t = msg.get("type")
+                        if probe is not None:
+                            probe.substrate_frame(conv_id, req_id, msg)
                         if t == 6:
                             continue
                         _capture_suspicious_response_event(getattr(self, "_response_debug_sink", None), msg)
